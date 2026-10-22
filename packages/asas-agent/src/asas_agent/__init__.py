@@ -67,7 +67,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .providers import azure_provider, gateway_provider
     from .tracing import LangfuseTracingProcessor
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 #: Names served by the modules that import the SDK, loaded on first use: the eval
 #: models, the production providers, the Langfuse tracing and the SDK loop.

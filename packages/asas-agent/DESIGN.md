@@ -54,8 +54,13 @@ Rules for code here, so a host can call it from a workflow sandbox:
 `head`, the skill catalogue, the active skill's playbook and clauses, then the
 renderer's `tail`, and opens the input with the renderer's `opening` before the
 history. Only `activate_skill` changes the instructions, so the provider's prompt
-cache holds them between writes; the record rides in the input. Tools run one at
-a time in the order the model issued them, so a replay sees the same sequence.
+cache holds them between writes; the record rides in the input. The tool calls of
+one model answer start in the order the model issued them. A tool whose
+descriptor says `"read_only": true` runs beside the calls around it; any other
+tool, `activate_skill` and the ask tool included, waits for every call before it
+and holds back every call after it, so a write never races a read of the same
+record. The trace and the results the model reads keep the call order, so a
+replay sees the same sequence.
 An `AgentsException` from a seam ends the run; any other exception from the
 dispatcher is a typed refusal the model reads.
 

@@ -143,9 +143,8 @@ def described_tools(
 def model_settings(conversation_id: str | None = None) -> ModelSettings:
     """Without a provider-side conversation nothing is stored there: the transcript,
     reasoning items included, is the host's, and encrypted reasoning is what lets the
-    next call continue the plan. Several tools in one model call: the tool lock still
-    runs them one at a time, in the order the model issued them, so replay sees the
-    same sequence."""
+    next call continue the plan. Several tools in one model call: the ones the host
+    declares read-only run together, every other one in its turn (`run_agent`)."""
     return ModelSettings(
         parallel_tool_calls=True,
         store=bool(conversation_id),
@@ -168,13 +167,26 @@ async def run_agent(
     """One run of the release in `snapshot` (`release`, `tools`, `history`, and
     optionally `active_skill` and `record`) until the agent answers, the ask handler
     raises `AskPending`, or an `AgentsException` ends it. Returns the answer, the new
-    history, the active skill, the tool trace, the record and the usage."""
+    history, the active skill, the tool trace, the record and the usage.
+
+    The calls of one model answer start in the order the model issued them. A tool
+    whose descriptor in `tools` says `"read_only": true` runs beside the calls around
+    it; any other tool (activate_skill and the ask tool included) waits for every call
+    before it and holds back every call after it, so a write never races a read of the
+    same record. Indexes are given at the start and the trace is kept in that order, so
+    a host replaying the run sees the same sequence."""
     release = snapshot["release"]
     skills = release["skills"]
     state = SkillState(
         snapshot.get("active_skill"), record=snapshot.get("record") or ""
     )
-    tool_lock = asyncio.Lock()
+    read_only = frozenset(d["name"] for d in snapshot["tools"] if d.get("read_only"))
+    # The last call that runs alone, and the read-only calls started since it.
+    alone: asyncio.Event | None = None
+    beside: list[asyncio.Event] = []
+    # Trace events wait here until every call before theirs is traced or has ended.
+    held: dict[int, dict | None] = {}
+    traced = 0
     if state.active not in skills:
         state.active = None
 
@@ -189,24 +201,52 @@ async def run_agent(
         )
 
     def observed(event: dict) -> None:
-        state.trace.append(event)
-        if trace_sink is not None:
-            trace_sink(event)
+        held[event["index"]] = event
+        release_trace()
+
+    def ended(index: int) -> None:
+        held.setdefault(index, None)
+        release_trace()
+
+    def release_trace() -> None:
+        nonlocal traced
+        while traced + 1 in held:
+            traced += 1
+            event = held.pop(traced)
+            if event is not None:
+                state.trace.append(event)
+                if trace_sink is not None:
+                    trace_sink(event)
 
     def make_tool(name: str, description: str, schema: dict):
         async def invoke(ctx, arguments):
-            async with tool_lock:
-                return await invoke_serially(ctx, arguments)
-
-        async def invoke_serially(ctx, arguments):
+            nonlocal alone, beside
+            # Nothing is awaited before the call takes its index and its place.
             state.calls += 1
-            if state.calls > release["max_tools"]:
-                raise ToolBudgetExceeded("agent_tool_budget")
+            index = state.calls
+            done = asyncio.Event()
+            waits = [alone] if alone else []
+            if name in read_only:
+                beside = [*(e for e in beside if not e.is_set()), done]
+            else:
+                waits += beside
+                alone, beside = done, []
+            try:
+                if index > release["max_tools"]:
+                    raise ToolBudgetExceeded("agent_tool_budget")
+                for event in waits:
+                    await event.wait()
+                return await invoke_in_turn(ctx, arguments, index)
+            finally:
+                done.set()
+                ended(index)
+
+        async def invoke_in_turn(ctx, arguments, index):
             if not enabled(name):
                 holders = sorted(k for k, s in skills.items() if name in s["tools"])
                 observed(
                     {
-                        "index": state.calls,
+                        "index": index,
                         "call_id": ctx.tool_call_id,
                         "name": name,
                         "skill_before": state.active,
@@ -253,7 +293,7 @@ async def run_agent(
                 except AskPending:
                     observed(
                         {
-                            "index": state.calls,
+                            "index": index,
                             "call_id": ctx.tool_call_id,
                             "name": name,
                             "skill_before": before,
@@ -283,7 +323,7 @@ async def run_agent(
                     state.record = record
             observed(
                 {
-                    "index": state.calls,
+                    "index": index,
                     "call_id": ctx.tool_call_id,
                     "name": name,
                     "skill_before": before,
