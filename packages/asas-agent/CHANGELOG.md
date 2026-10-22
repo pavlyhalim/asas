@@ -5,6 +5,16 @@ Pre-1.0, a breaking change bumps the **minor**.
 
 Release procedure and the historical tag mapping: [`RELEASING.md`](../../RELEASING.md).
 
+## 0.3.1
+
+- **Read-only tools of one model answer run together.** A tool whose descriptor
+  in the snapshot's `tools` says `"read_only": true` no longer waits for the
+  calls beside it; any other tool, `activate_skill` and the ask tool included,
+  waits for every call before it and holds back every call after it, as every
+  tool did in 0.3.0. The trace, its indexes and the results the model reads keep
+  the order the model issued the calls in. A host that declares no tool
+  read-only sees no change.
+
 ## 0.3.0
 
 The SDK loop, moved from the first host's agent runtime behind seams the host
