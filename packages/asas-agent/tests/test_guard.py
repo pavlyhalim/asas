@@ -3,10 +3,11 @@ and an inspector that raises refuses the call and ends the run with the host's o
 error; `output_type` makes the final answer typed."""
 
 import pytest
-from asas_agent import GuardedModel, run_agent
 from conftest import run
 from pydantic import BaseModel
 from test_loop import RENDERER, ScriptedModel, never_asked, snapshot
+
+from asas_agent import GuardedModel, run_agent
 
 
 class Refused(Exception):
@@ -102,3 +103,24 @@ def test_an_output_type_makes_the_answer_typed():
     )
     assert result["output"] == Verdict(score=4, reason="Strong fit")
     assert result["answer"] == ""
+
+
+def test_a_model_by_reference_behind_the_guard_still_learns_the_skill():
+    class ByReference(ScriptedModel):
+        def bind(self, active_skill):
+            self.active_skill = active_skill
+
+    inner = ByReference([("activate_skill", {"name": "triage"}), (None, "Done.")])
+
+    async def allow(*args):
+        return None
+
+    model = GuardedModel(inner, inspect_prompt=allow, inspect_response=allow)
+
+    async def dispatch(*args):
+        raise AssertionError("no tool was expected")
+
+    run(
+        run_agent(snapshot(), dispatch, never_asked, renderer=RENDERER, run_model=model)
+    )
+    assert inner.active_skill() == "triage"

@@ -73,3 +73,23 @@ class ContextRenderer(Protocol):
         """The input items before the history: the record as it reads at the start
         (empty when the run has none yet)."""
         ...
+
+
+class ReleaseStore(Protocol):
+    """Where releases live and which one a label points at, per agent: files
+    (`FileStore`), Langfuse (`LangfuseStore`) or the host's own database. A store
+    moves the bytes; `fetch_release` verifies what it returns, so a store never
+    decides what a release is. Runs outside a workflow sandbox (it does I/O): a
+    durable host reads it in an Activity."""
+
+    async def read(self, agent: str, label: str) -> Mapping[str, Any]:
+        """The release payload `label` points at for `agent`."""
+        ...
+
+    async def publish(self, agent: str, release: Mapping[str, Any]) -> None:
+        """Store a built release under its id; publishing it again changes nothing."""
+        ...
+
+    async def promote(self, agent: str, release_id: str, label: str) -> None:
+        """Point `label` at a published release of `agent`."""
+        ...

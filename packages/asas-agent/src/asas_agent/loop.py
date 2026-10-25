@@ -140,16 +140,22 @@ def described_tools(
     ]
 
 
-def model_settings(conversation_id: str | None = None) -> ModelSettings:
+def model_settings(
+    conversation_id: str | None = None, release: Mapping[str, Any] | None = None
+) -> ModelSettings:
     """Without a provider-side conversation nothing is stored there: the transcript,
     reasoning items included, is the host's, and encrypted reasoning is what lets the
     next call continue the plan. Several tools in one model call: the ones the host
-    declares read-only run together, every other one in its turn (`run_agent`)."""
-    return ModelSettings(
+    declares read-only run together, every other one in its turn (`run_agent`).
+    The release's `settings.model` (temperature, reasoning, max_tokens...) lays over
+    these; an unknown name is refused by the SDK."""
+    base = ModelSettings(
         parallel_tool_calls=True,
         store=bool(conversation_id),
         response_include=None if conversation_id else ["reasoning.encrypted_content"],
     )
+    configured = ((release or {}).get("settings") or {}).get("model")
+    return base.resolve(ModelSettings(**configured)) if configured else base
 
 
 async def run_agent(
@@ -164,6 +170,8 @@ async def run_agent(
     trace_sink: Callable[[dict], None] | None = None,
     conversation_id: str | None = None,
     output_type: type[Any] | None = None,
+    group_id: str | None = None,
+    trace_metadata: Mapping[str, Any] | None = None,
 ) -> dict:
     """One run of the release in `snapshot` (`release`, `tools`, `history`, and
     optionally `active_skill` and `record`) until the agent answers, the ask handler
@@ -180,7 +188,13 @@ async def run_agent(
     With `output_type` (a pydantic model, a dataclass or a TypedDict) the agent's
     final answer is that type, validated by the SDK against its strict schema, and
     the result carries it as `output`; `answer` stays the text, empty for a typed
-    answer. Without it `output` is None."""
+    answer. Without it `output` is None.
+
+    Tracing is the release's: `settings.tracing.enabled` turns the SDK's trace on for
+    this run (named after the release, `release_id` in its metadata beside the host's
+    `trace_metadata`, in the `group_id` session), and `settings.tracing.sensitive`
+    keeps the run's content in it. Off unless the release says so; where the trace
+    goes is the host's `set_trace_processors`."""
     release = snapshot["release"]
     skills = release["skills"]
     state = SkillState(
@@ -370,13 +384,24 @@ async def run_agent(
         instructions=instructions,
         tools=tools,
         model=model or release["model"],
-        model_settings=model_settings(conversation_id),
+        model_settings=model_settings(conversation_id, release),
         output_type=output_type,
     )
     chosen: dict[str, Any] = {"model": run_model}
     if provider:
         chosen["model_provider"] = provider
-    config = RunConfig(tracing_disabled=True, **chosen)
+    tracing = (release.get("settings") or {}).get("tracing") or {}
+    config = RunConfig(
+        tracing_disabled=not tracing.get("enabled", False),
+        trace_include_sensitive_data=bool(tracing.get("sensitive", False)),
+        workflow_name=release["name"],
+        group_id=group_id,
+        trace_metadata={
+            **(trace_metadata or {}),
+            "release_id": release.get("id", ""),
+        },
+        **chosen,
+    )
     try:
         result = await Runner.run(
             agent,

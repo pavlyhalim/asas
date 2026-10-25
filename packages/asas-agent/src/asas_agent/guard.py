@@ -30,6 +30,8 @@ from typing import Any
 
 from agents import Model
 
+from .seams import SkillAware
+
 #: (the texts the call sends, the system instructions) -> None, or raise to refuse.
 PromptInspector = Callable[[list[str], str | None], Awaitable[None]]
 #: (the answer's text, the system instructions) -> None, or raise to refuse.
@@ -99,6 +101,14 @@ class GuardedModel(Model):
         )
         await self.inspect_response(response_text(response), system_instructions)
         return response
+
+    def bind(self, active_skill) -> None:
+        # A model by reference behind the guard still learns the active skill.
+        if isinstance(self.inner, SkillAware):
+            self.inner.bind(active_skill)
+
+    def get_retry_advice(self, request):
+        return self.inner.get_retry_advice(request)
 
     def stream_response(self, *args, **kwargs):
         # A streamed answer reaches the run before it can be inspected whole.

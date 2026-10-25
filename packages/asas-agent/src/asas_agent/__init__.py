@@ -1,8 +1,10 @@
 """Asas Agent: the framework that runs agents, on the OpenAI Agents SDK.
 
-* **Releases.** An agent's prompt, skills and budgets captured whole under the hash
-  of their content (:func:`build_release`, :func:`load_release`); a run pins its
-  release and never rereads the files, so retries and replays see one agent.
+* **Releases.** An agent's prompt, skills, model, budgets and settings captured whole
+  under the hash of their content (:func:`build_release`, :func:`load_release`); a run
+  pins its release and never rereads it, so retries and replays see one agent. A
+  release lives in a store the host chooses (:class:`ReleaseStore`: :class:`FileStore`,
+  :class:`LangfuseStore` or its own), read through a label (:func:`fetch_release`).
 * **Skills.** Playbooks in SKILL.md files with a YAML header (:mod:`asas_agent.skills`),
   activated by the agent; one stage of a case sees only its own (:func:`stage_view`).
 * **Run contracts.** The payloads between a host's orchestration and a run
@@ -40,17 +42,22 @@ from .evaluation import (
     summarize_repetitions,
 )
 from .releases import (
+    FileStore,
     build_release,
+    fetch_release,
     load_release,
     read_release,
+    release_from,
     release_id,
     stage_tools,
     stage_view,
 )
-from .seams import AskHandler, ContextRenderer, SkillAware, ToolDispatcher
+from .seams import AskHandler, ContextRenderer, ReleaseStore, SkillAware, ToolDispatcher
 from .skills import load_skills, parse_skill
 
 if TYPE_CHECKING:  # pragma: no cover
+    from .guard import GuardedModel
+    from .langfuse_store import LangfuseStore
     from .loop import (
         AskPending,
         SkillState,
@@ -63,12 +70,11 @@ if TYPE_CHECKING:  # pragma: no cover
         run_agent,
         run_usage,
     )
-    from .guard import GuardedModel
     from .models import GATEWAY_KEYS, GatewayModels, MeasuredModel, usage_of
     from .providers import azure_provider, gateway_provider
     from .tracing import LangfuseTracingProcessor
 
-__version__ = "0.3.2"
+__version__ = "0.4.0"
 
 #: Names served by the modules that import the SDK, loaded on first use: the eval
 #: models, the production providers, the Langfuse tracing, the guarded model and the
@@ -82,6 +88,7 @@ _LAZY: dict[str, str] = {
     "azure_provider": "providers",
     "LangfuseTracingProcessor": "tracing",
     "GuardedModel": "guard",
+    "LangfuseStore": "langfuse_store",
     "AskPending": "loop",
     "SkillState": "loop",
     "ToolBudgetExceeded": "loop",
@@ -112,12 +119,15 @@ __all__ = [
     "ContextRenderer",
     "Delivery",
     "Failure",
+    "FileStore",
     "GatewayModels",
     "GuardedModel",
+    "LangfuseStore",
     "LangfuseTracingProcessor",
     "MeasuredModel",
     "ModelCall",
     "ProcedureFailure",
+    "ReleaseStore",
     "RunInput",
     "ScenarioStep",
     "SkillAware",
@@ -133,6 +143,7 @@ __all__ = [
     "described_tools",
     "empty_usage",
     "failure_tool_trace",
+    "fetch_release",
     "gateway_provider",
     "instructions_for",
     "load_release",
@@ -141,6 +152,7 @@ __all__ = [
     "parse_scenario",
     "parse_skill",
     "read_release",
+    "release_from",
     "release_id",
     "run_agent",
     "run_suite",
