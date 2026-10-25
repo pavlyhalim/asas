@@ -63,14 +63,16 @@ if TYPE_CHECKING:  # pragma: no cover
         run_agent,
         run_usage,
     )
+    from .guard import GuardedModel
     from .models import GATEWAY_KEYS, GatewayModels, MeasuredModel, usage_of
     from .providers import azure_provider, gateway_provider
     from .tracing import LangfuseTracingProcessor
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 #: Names served by the modules that import the SDK, loaded on first use: the eval
-#: models, the production providers, the Langfuse tracing and the SDK loop.
+#: models, the production providers, the Langfuse tracing, the guarded model and the
+#: SDK loop.
 _LAZY: dict[str, str] = {
     "GATEWAY_KEYS": "models",
     "GatewayModels": "models",
@@ -79,6 +81,7 @@ _LAZY: dict[str, str] = {
     "gateway_provider": "providers",
     "azure_provider": "providers",
     "LangfuseTracingProcessor": "tracing",
+    "GuardedModel": "guard",
     "AskPending": "loop",
     "SkillState": "loop",
     "ToolBudgetExceeded": "loop",
@@ -110,6 +113,7 @@ __all__ = [
     "Delivery",
     "Failure",
     "GatewayModels",
+    "GuardedModel",
     "LangfuseTracingProcessor",
     "MeasuredModel",
     "ModelCall",

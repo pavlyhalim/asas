@@ -163,6 +163,7 @@ async def run_agent(
     run_model: Model | None = None,
     trace_sink: Callable[[dict], None] | None = None,
     conversation_id: str | None = None,
+    output_type: type[Any] | None = None,
 ) -> dict:
     """One run of the release in `snapshot` (`release`, `tools`, `history`, and
     optionally `active_skill` and `record`) until the agent answers, the ask handler
@@ -174,7 +175,12 @@ async def run_agent(
     it; any other tool (activate_skill and the ask tool included) waits for every call
     before it and holds back every call after it, so a write never races a read of the
     same record. Indexes are given at the start and the trace is kept in that order, so
-    a host replaying the run sees the same sequence."""
+    a host replaying the run sees the same sequence.
+
+    With `output_type` (a pydantic model, a dataclass or a TypedDict) the agent's
+    final answer is that type, validated by the SDK against its strict schema, and
+    the result carries it as `output`; `answer` stays the text, empty for a typed
+    answer. Without it `output` is None."""
     release = snapshot["release"]
     skills = release["skills"]
     state = SkillState(
@@ -365,6 +371,7 @@ async def run_agent(
         tools=tools,
         model=model or release["model"],
         model_settings=model_settings(conversation_id),
+        output_type=output_type,
     )
     chosen: dict[str, Any] = {"model": run_model}
     if provider:
@@ -388,6 +395,7 @@ async def run_agent(
             "record": state.record,
             "usage": empty_usage(),
             "ended": "asked",
+            "output": None,
         }
     answer = result.final_output
     return {
@@ -398,6 +406,7 @@ async def run_agent(
         "record": state.record,
         "usage": run_usage(result),
         "ended": "answered",
+        "output": answer if output_type is not None else None,
     }
 
 

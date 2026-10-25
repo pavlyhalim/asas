@@ -100,6 +100,27 @@ Three things a host that must keep data in-country has to get right:
 - **Always pass `base_url`.** `gateway_provider`'s default `base_url=None`
   means api.openai.com, so a host on a gateway must name the gateway's URL.
 
+## A typed answer, behind the host's guard
+
+A run that must end in data rather than words names its type, and a host that
+screens every model call wraps the model it runs on:
+
+```python
+from asas_agent import GuardedModel, run_agent
+
+model = GuardedModel(
+    provider.get_model("gpt-5"),
+    inspect_prompt=check_prompt,      # async (texts, system) -> None, raise to refuse
+    inspect_response=check_response,  # async (text, system) -> None, raise to refuse
+)
+result = await run_agent(snapshot, dispatch, ask, renderer=renderer,
+                         run_model=model, output_type=Verdict)
+result["output"]  # a Verdict, validated against its strict schema
+```
+
+The inspectors are the host's: the package holds no rules, and the exception an
+inspector raises ends the run unchanged. `GuardedModel` does not stream.
+
 ## Developing
 
 `pip install -e '.[dev]'`, then `pytest -q`. No database, no network, no model.

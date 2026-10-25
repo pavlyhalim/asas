@@ -5,6 +5,24 @@ Pre-1.0, a breaking change bumps the **minor**.
 
 Release procedure and the historical tag mapping: [`RELEASING.md`](../../RELEASING.md).
 
+## 0.3.2
+
+Additive: a host on 0.3.1 changes nothing.
+
+- **A typed answer.** `run_agent(..., output_type=)` hands the type to the SDK's
+  `Agent` (a pydantic model, a dataclass or a TypedDict), so the final answer is
+  validated against its strict schema. The result gains `output`: the typed
+  answer, or None without `output_type` and for a run that ended at a question.
+  `answer` keeps the text, empty for a typed answer.
+- **`GuardedModel(inner, inspect_prompt=, inspect_response=)`** (loaded on first
+  use): the host's inspection around every model call of a run, passed as
+  `run_model`. The prompt inspector gets the texts the call sends (messages and
+  tool results, not the system instructions) and the system instructions; the
+  response inspector gets the answer's text and every tool call's arguments. An
+  inspector that raises refuses the call, and its exception ends the run as it
+  is. The package holds no rules. It does not stream: a streamed answer would
+  reach the run before it was inspected.
+
 ## 0.3.1
 
 - **Read-only tools of one model answer run together.** A tool whose descriptor

@@ -13,6 +13,8 @@ asas_agent/
   models.py      MeasuredModel, GatewayModels (imports the SDK; loaded on first use)
   providers.py   gateway_provider, azure_provider: a product run's ModelProvider
                  (imports the SDK and the OpenAI client; loaded on first use)
+  guard.py       GuardedModel: the host's prompt and response inspection around
+                 every model call (imports the SDK; loaded on first use)
   tracing.py     LangfuseTracingProcessor: the SDK's run traces in Langfuse 2.x
                  (imports the SDK; loaded on first use)
   seams.py       the Protocols a host fills: ToolDispatcher, AskHandler, SkillAware,
