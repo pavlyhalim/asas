@@ -6,9 +6,20 @@ from datetime import datetime
 
 import pytest
 from agents import set_trace_processors
-from agents.tracing import agent_span, custom_span, function_span, generation_span, trace
+from agents.tracing import (
+    agent_span,
+    custom_span,
+    function_span,
+    generation_span,
+    trace,
+)
 
-from asas_agent.tracing import GENERATION_KINDS, MASK_FAILED, LangfuseTracingProcessor, langfuse_id
+from asas_agent.tracing import (
+    GENERATION_KINDS,
+    MASK_FAILED,
+    LangfuseTracingProcessor,
+    langfuse_id,
+)
 
 
 class Client:
@@ -67,7 +78,11 @@ def test_a_run_becomes_a_trace_in_the_sessions_and_its_spans_nest(client):
     assert kinds == ["trace", "generation", "span", "span", "span"]
     opened = client.calls[0][1]
     assert opened["id"] == langfuse_id(t.trace_id) and len(opened["id"]) == 32
-    assert opened["name"] == "my-flow" and opened["session_id"] == "sess-1" and opened["metadata"] == {"k": "v"}
+    assert (
+        opened["name"] == "my-flow"
+        and opened["session_id"] == "sess-1"
+        and opened["metadata"] == {"k": "v"}
+    )
 
     generation = client.calls[1][1]
     agent = client.calls[4][1]
@@ -75,7 +90,10 @@ def test_a_run_becomes_a_trace_in_the_sessions_and_its_spans_nest(client):
     assert generation["parent_observation_id"] == agent["id"]
     assert agent["parent_observation_id"] is None and agent["name"] == "agent:assistant"
     assert agent["input"] == {"tools": ["read"]}
-    assert isinstance(generation["start_time"], datetime) and generation["end_time"] >= generation["start_time"]
+    assert (
+        isinstance(generation["start_time"], datetime)
+        and generation["end_time"] >= generation["start_time"]
+    )
 
 
 def test_a_generation_keeps_the_model_the_messages_and_the_usage(client):
@@ -91,7 +109,11 @@ def test_a_generation_keeps_the_model_the_messages_and_the_usage(client):
 def test_a_tool_call_keeps_its_arguments_and_result_and_an_error_is_the_level(client):
     _run_flow()
     tool = client.calls[2][1]
-    assert tool["name"] == "function:read" and tool["input"] == '{"id": 1}' and tool["output"] == "ok"
+    assert (
+        tool["name"] == "function:read"
+        and tool["input"] == '{"id": 1}'
+        and tool["output"] == "ok"
+    )
     assert "level" not in tool
     step = client.calls[3][1]
     assert step["name"] == "custom:step" and step["input"] == {"data": {"a": 1}}
@@ -174,5 +196,23 @@ def test_import_asas_agent_does_not_load_the_sdk_for_this_module():
 
     src = str(Path(__file__).resolve().parents[1] / "src")
     code = "import sys, asas_agent; print('agents' in sys.modules, 'langfuse' in sys.modules)"
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, env={"PYTHONPATH": src, "PATH": ""})
+    out = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={"PYTHONPATH": src, "PATH": ""},
+    )
     assert out.stdout.strip() == "False False"
+
+
+def test_model_parameters_are_sent_flat():
+    from asas_agent.tracing import flat_parameters
+
+    assert flat_parameters(
+        {"temperature": 0.2, "reasoning": {"effort": "low"}, "store": None}
+    ) == {
+        "temperature": 0.2,
+        "reasoning": '{"effort": "low"}',
+    }
+    assert flat_parameters(None) is None and flat_parameters({}) is None

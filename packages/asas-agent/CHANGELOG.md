@@ -35,6 +35,9 @@ settings keeps its id.
   and `load_release` are unchanged.
 - **`asas-agent publish` and `asas-agent promote`**, for a release pipeline:
   `--store file:<directory>` or `--store langfuse`.
+- **Fix:** `LangfuseTracingProcessor` sends a generation's model parameters
+  flat, a nested one (the SDK's `reasoning`) as its JSON; the 2.x client
+  refused the object and the generation was lost.
 
 - **A typed answer.** `run_agent(..., output_type=)` hands the type to the SDK's
   `Agent` (a pydantic model, a dataclass or a TypedDict), so the final answer is
