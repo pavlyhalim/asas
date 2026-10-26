@@ -41,8 +41,9 @@ one of its names is first used.
 
 from __future__ import annotations
 
+import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any
 
@@ -67,6 +68,26 @@ def langfuse_id(sdk_id: str | None) -> str | None:
     return sdk_id[6:] if sdk_id.startswith("trace_") else sdk_id
 
 
+def flat_parameters(config: Any) -> dict[str, Any] | None:
+    """The model settings as Langfuse 2.x takes them: a flat map of scalars.
+    The SDK records ``reasoning`` and the like as objects, which the client
+    refuses; a nested value is sent as its JSON."""
+    if not isinstance(config, Mapping):
+        return None
+    flat: dict[str, Any] = {}
+    for key, value in config.items():
+        if value is None:
+            continue
+        if isinstance(value, (str, int, float, bool)):
+            flat[key] = value
+        else:
+            try:
+                flat[key] = json.dumps(value, default=str, sort_keys=True)
+            except (TypeError, ValueError):
+                flat[key] = str(value)
+    return flat or None
+
+
 def _when(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -80,7 +101,9 @@ class LangfuseTracingProcessor(TracingProcessor):
     """See the module docstring. ``client`` is a ``langfuse.Langfuse`` (2.x);
     ``flush_on_trace_end`` flushes after every run, for a short-lived worker."""
 
-    def __init__(self, client: Any, *, mask: Mask | None = None, flush_on_trace_end: bool = False) -> None:
+    def __init__(
+        self, client: Any, *, mask: Mask | None = None, flush_on_trace_end: bool = False
+    ) -> None:
         self.client = client
         self.mask = mask
         self.flush_on_trace_end = flush_on_trace_end
@@ -93,7 +116,11 @@ class LangfuseTracingProcessor(TracingProcessor):
         except Exception as exc:  # noqa: BLE001 - a mask must never cost the trace
             # The exception's message and traceback may quote the value, so
             # only its type is logged.
-            log.warning("asas_agent.tracing: mask failed (%s); field sent as %s", type(exc).__name__, MASK_FAILED)
+            log.warning(
+                "asas_agent.tracing: mask failed (%s); field sent as %s",
+                type(exc).__name__,
+                MASK_FAILED,
+            )
             return MASK_FAILED
 
     # -- the SDK's hooks -----------------------------------------------------
@@ -108,7 +135,11 @@ class LangfuseTracingProcessor(TracingProcessor):
                 metadata=data.get("metadata"),
             )
         except Exception:  # noqa: BLE001 - tracing must never fail the run
-            log.warning("asas_agent.tracing: could not open trace %s", trace.trace_id, exc_info=True)
+            log.warning(
+                "asas_agent.tracing: could not open trace %s",
+                trace.trace_id,
+                exc_info=True,
+            )
 
     def on_trace_end(self, trace: Trace) -> None:
         if self.flush_on_trace_end:
@@ -131,25 +162,35 @@ class LangfuseTracingProcessor(TracingProcessor):
         }
         if error:
             common["level"] = "ERROR"
-            common["status_message"] = str(error.get("message") if isinstance(error, dict) else error)
+            common["status_message"] = str(
+                error.get("message") if isinstance(error, dict) else error
+            )
         try:
             if kind in GENERATION_KINDS:
                 self._generation(kind, span_data, common)
             else:
                 self._span(kind, span_data, common)
         except Exception:  # noqa: BLE001 - tracing must never fail the run
-            log.warning("asas_agent.tracing: could not write span %s", span.span_id, exc_info=True)
+            log.warning(
+                "asas_agent.tracing: could not write span %s",
+                span.span_id,
+                exc_info=True,
+            )
 
-    def _generation(self, kind: str, span_data: dict[str, Any], common: dict[str, Any]) -> None:
+    def _generation(
+        self, kind: str, span_data: dict[str, Any], common: dict[str, Any]
+    ) -> None:
         usage = span_data.get("usage") or {}
-        usage_details = {k: int(v) for k, v in usage.items() if isinstance(v, (int, float))} or None
+        usage_details = {
+            k: int(v) for k, v in usage.items() if isinstance(v, (int, float))
+        } or None
         output = span_data.get("output")
         if output is None and span_data.get("response_id"):
             output = {"response_id": span_data["response_id"]}
         self.client.generation(
             name=span_data.get("name") or kind,
             model=span_data.get("model"),
-            model_parameters=span_data.get("model_config") or None,
+            model_parameters=flat_parameters(span_data.get("model_config")),
             input=self._masked(span_data.get("input")),
             output=self._masked(output),
             usage_details=usage_details,
@@ -157,14 +198,29 @@ class LangfuseTracingProcessor(TracingProcessor):
             **common,
         )
 
-    def _span(self, kind: str, span_data: dict[str, Any], common: dict[str, Any]) -> None:
+    def _span(
+        self, kind: str, span_data: dict[str, Any], common: dict[str, Any]
+    ) -> None:
         name = span_data.get("name") or kind
-        payload = {k: v for k, v in span_data.items() if k not in ("name", "input", "output") and v is not None}
+        payload = {
+            k: v
+            for k, v in span_data.items()
+            if k not in ("name", "input", "output") and v is not None
+        }
         self.client.span(
             name=f"{kind}:{name}" if name != kind else kind,
-            input=self._masked(span_data.get("input") if "input" in span_data else (payload or None)),
+            input=self._masked(
+                span_data.get("input") if "input" in span_data else (payload or None)
+            ),
             output=self._masked(span_data.get("output")),
-            metadata={"kind": kind, **({"data": self._masked(payload)} if "input" in span_data and payload else {})},
+            metadata={
+                "kind": kind,
+                **(
+                    {"data": self._masked(payload)}
+                    if "input" in span_data and payload
+                    else {}
+                ),
+            },
             **common,
         )
 
@@ -178,4 +234,10 @@ class LangfuseTracingProcessor(TracingProcessor):
             log.debug("asas_agent.tracing: flush failed", exc_info=True)
 
 
-__all__ = ["GENERATION_KINDS", "MASK_FAILED", "LangfuseTracingProcessor", "langfuse_id"]
+__all__ = [
+    "GENERATION_KINDS",
+    "MASK_FAILED",
+    "LangfuseTracingProcessor",
+    "flat_parameters",
+    "langfuse_id",
+]

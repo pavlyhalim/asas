@@ -100,6 +100,61 @@ Three things a host that must keep data in-country has to get right:
 - **Always pass `base_url`.** `gateway_provider`'s default `base_url=None`
   means api.openai.com, so a host on a gateway must name the gateway's URL.
 
+## The agent as configuration
+
+A release is the whole agent: prompt, skills, model, budgets and `settings` in
+`agent.yaml` (the SDK's model settings and tracing). It lives in a store and a
+label says which one runs, so an agent changes without a deployment:
+
+```yaml
+# agents/jd-builder/agent.yaml
+name: JD builder
+max_turns: 40
+max_tools: 30
+settings:
+  model: {temperature: 0.3, reasoning: {effort: low}}
+  tracing: {enabled: true, sensitive: false}
+```
+
+```python
+from asas_agent import FileStore, LangfuseStore, fetch_release
+
+store = LangfuseStore(langfuse_client, prefix="agent-")   # or FileStore(Path("releases"))
+release = await fetch_release(store, "jd-builder", "production", model="gpt-5")
+```
+
+```bash
+asas-agent publish agents --agent jd-builder --model gpt-5 --store langfuse --label qa
+asas-agent promote --agent jd-builder --id <release id> --label production --store langfuse
+```
+
+`fetch_release` verifies whatever the store returns, so an edit made in Langfuse's
+editor runs under the id of what it says. Who may move `production` is the store's
+to enforce. A host with neither Langfuse nor files writes its own `ReleaseStore`:
+three async methods. Tracing on in a release sends traces wherever the host's
+`set_trace_processors` says, and to api.openai.com if the host never set it.
+
+## A typed answer, behind the host's guard
+
+A run that must end in data rather than words names its type, and a host that
+screens every model call wraps the model it runs on:
+
+```python
+from asas_agent import GuardedModel, run_agent
+
+model = GuardedModel(
+    provider.get_model("gpt-5"),
+    inspect_prompt=check_prompt,      # async (texts, system) -> None, raise to refuse
+    inspect_response=check_response,  # async (text, system) -> None, raise to refuse
+)
+result = await run_agent(snapshot, dispatch, ask, renderer=renderer,
+                         run_model=model, output_type=Verdict)
+result["output"]  # a Verdict, validated against its strict schema
+```
+
+The inspectors are the host's: the package holds no rules, and the exception an
+inspector raises ends the run unchanged. `GuardedModel` does not stream.
+
 ## Developing
 
 `pip install -e '.[dev]'`, then `pytest -q`. No database, no network, no model.

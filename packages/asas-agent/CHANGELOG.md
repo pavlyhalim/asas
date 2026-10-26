@@ -5,6 +5,56 @@ Pre-1.0, a breaking change bumps the **minor**.
 
 Release procedure and the historical tag mapping: [`RELEASING.md`](../../RELEASING.md).
 
+## 0.4.0
+
+The agent as configuration: a release carries its settings and lives in a store the
+host chooses, read through a label, so an agent changes without a deployment. A
+minor, as 0.3.0 was, because the stores and their commands are new public API;
+nothing a host on 0.3.1 calls changes, and a release whose agent.yaml names no
+settings keeps its id.
+
+- **`settings` in a release**, from `agent.yaml`: `model`, the SDK's model settings
+  (temperature, reasoning, max_tokens...), laid over the loop's own by
+  `model_settings(conversation_id, release)`; and `tracing`, `enabled` and
+  `sensitive`. Present only when named, so every existing id holds.
+- **Tracing per agent.** `run_agent` traces a run only when its release's
+  `settings.tracing.enabled` says so (it was always off), named after the release,
+  with `release_id` in the metadata beside the host's new `trace_metadata`, in the
+  host's new `group_id` session; `sensitive` decides whether the trace keeps the
+  run's content. Where it goes is the host's `set_trace_processors`: a host that
+  enables tracing without replacing the SDK's processors sends traces to
+  api.openai.com.
+- **Release stores.** `ReleaseStore` (a seam: `read(agent, label)`,
+  `publish(agent, release)`, `promote(agent, release_id, label)`), `FileStore`
+  (`<id>.json` and `<agent>/<label>.json`) and `LangfuseStore` (one Langfuse text
+  prompt per agent, the instructions as its text and the rest of the release as its
+  config; the `langfuse` extra). `fetch_release(store, agent, label, model=)` reads a
+  label and verifies what came back with `release_from`, which checks the shape,
+  refuses content that does not hash to the id it claims and gives content that
+  claims none (an edit in Langfuse's editor) the id of what it says. `read_release`
+  and `load_release` are unchanged.
+- **`asas-agent publish` and `asas-agent promote`**, for a release pipeline:
+  `--store file:<directory>` or `--store langfuse`.
+- **Fix:** `LangfuseTracingProcessor` sends a generation's model parameters
+  flat, a nested one (the SDK's `reasoning`) as its JSON; the 2.x client
+  refused the object and the generation was lost.
+
+- **A typed answer.** `run_agent(..., output_type=)` hands the type to the SDK's
+  `Agent` (a pydantic model, a dataclass or a TypedDict), so the final answer is
+  validated against its strict schema. The result gains `output`: the typed
+  answer, or None without `output_type` and for a run that ended at a question.
+  `answer` keeps the text, empty for a typed answer.
+- **`GuardedModel(inner, inspect_prompt=, inspect_response=)`** (loaded on first
+  use): the host's inspection around every model call of a run, passed as
+  `run_model`. The prompt inspector gets the texts the call sends (messages and
+  tool results, not the system instructions) and the system instructions; the
+  response inspector gets the answer's text and every tool call's arguments. An
+  inspector that raises refuses the call, and its exception ends the run as it
+  is. The package holds no rules. It does not stream: a streamed answer would
+  reach the run before it was inspected.
+  A by-reference model behind it still learns the active skill (`bind` passes
+  through), and the inner model's retry advice reaches the SDK.
+
 ## 0.3.1
 
 - **Read-only tools of one model answer run together.** A tool whose descriptor

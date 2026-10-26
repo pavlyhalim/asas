@@ -5,6 +5,11 @@ Pre-1.0, a breaking change bumps the **minor**.
 
 Release procedure and the historical tag mapping: [`RELEASING.md`](../../RELEASING.md).
 
+## 0.1.8 (unreleased)
+
+- The offline fallback pin for `asas-agent` moves to `v0.4.0`, the release with
+  release stores, per-agent settings and tracing, a typed answer and the guarded model.
+
 ## 0.1.7 (unreleased)
 
 - The offline fallback pin for `asas-agent` moves to `v0.3.1`, the release whose

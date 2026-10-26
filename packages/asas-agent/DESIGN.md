@@ -7,16 +7,21 @@ asas_agent/
   contracts.py   run payloads (pydantic): RunInput, ToolCall, ModelCall, Ask,
                  Delivery, TurnResult, Failure
   skills.py      the SKILL.md format: parse_skill, load_skills
-  releases.py    build_release, load_release, read_release, stage_view, stage_tools
+  releases.py    build_release, load_release, read_release, stage_view, stage_tools,
+                 release_from, fetch_release, FileStore
+  langfuse_store.py  LangfuseStore: releases as Langfuse prompts (the langfuse extra;
+                 loaded on first use)
   evaluation.py  scenario suites: parse_scenario, run_suite, summarize_repetitions,
                  assert_expected_record
   models.py      MeasuredModel, GatewayModels (imports the SDK; loaded on first use)
   providers.py   gateway_provider, azure_provider: a product run's ModelProvider
                  (imports the SDK and the OpenAI client; loaded on first use)
+  guard.py       GuardedModel: the host's prompt and response inspection around
+                 every model call (imports the SDK; loaded on first use)
   tracing.py     LangfuseTracingProcessor: the SDK's run traces in Langfuse 2.x
                  (imports the SDK; loaded on first use)
   seams.py       the Protocols a host fills: ToolDispatcher, AskHandler, SkillAware,
-                 ContextRenderer
+                 ContextRenderer, ReleaseStore
   loop.py        run_agent, instructions_for, described_tools, model_settings
                  (imports the SDK; loaded on first use)
   cli.py         asas-agent eval
@@ -37,6 +42,7 @@ engine, and a run's moving parts reach the host through seams the host fills.
 | tool dispatcher | `ToolDispatcher`: the call id, tool name, arguments and active skill in, the tool's result out, under the host's authorisation and gates | 0.3.0 |
 | ask handler | `AskHandler`: records the agent's question and returns when the person answers, or raises `AskPending` | 0.3.0 |
 | context renderer | `ContextRenderer`: the record the agent reads first and finds in tool results, the tools every skill holds, the ask tool, and the host's words before and after the skills | 0.3.0 |
+| release store | `ReleaseStore`: where releases live and which one a label points at (`FileStore`, `LangfuseStore`, or the host's database), read outside the sandbox | 0.4.0 |
 | run store | the run's transcript, model-call cache, tool effects, inbox and outbox | with the store and its tables |
 | clock | the time the run sees | with the store |
 
@@ -68,8 +74,14 @@ dispatcher is a typed refusal the model reads.
 
 The id is the SHA-256 of the release without its id, as
 `json.dumps(release, sort_keys=True)` writes it. The keys are `name`, `model`,
-`instructions`, `skills`, `max_turns`, `max_tools`. A new key changes every
-host's ids, so it is a breaking release, never a patch.
+`instructions`, `skills`, `max_turns`, `max_tools`, and `settings` only when the
+agent names any (0.4.0), so a release without settings keeps the id it had. A new
+required key changes every host's ids, so it is a breaking release, never a patch.
+
+A store moves the bytes; `release_from` decides what they are. Content that claims
+an id must hash to it. Content that claims none, an edit made in a store's own
+editor, is given the id of what it says, so the run records what really ran and a
+change of model or of one word is a new id.
 
 ## Tables
 
