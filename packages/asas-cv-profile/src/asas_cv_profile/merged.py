@@ -56,7 +56,9 @@ def flag_merged(profile: dict, model: ProfileModel, text: Lines) -> int:
             ranged = dated[sub] == "range"
             cited_by = Counter(n for e in node for n in set(e.get("lines") or []))
             for entry in node:
-                entry.pop("flags", None)
+                others = [f for f in entry.pop("flags", []) if f.get("code") != "merged"]  # its own, set again below; others stay
+                if others:
+                    entry["flags"] = others
                 found: dict[Any, int] = {}
                 for n in entry.get("lines") or []:
                     if cited_by[n] > 1:
@@ -69,7 +71,7 @@ def flag_merged(profile: dict, model: ProfileModel, text: Lines) -> int:
                 lines_with = sorted(set(found.values()))
                 if len(found) >= 2 and len(lines_with) >= 2:
                     what = "date ranges" if ranged else "years"
-                    entry["flags"] = [{"code": "merged", "message": f"Its lines state {len(found)} separate {what} "
-                                       f"(lines {', '.join(map(str, lines_with))}): it may be several entries read as one."}]
+                    entry.setdefault("flags", []).append({"code": "merged", "message": f"Its lines state {len(found)} separate {what} "
+                                                          f"(lines {', '.join(map(str, lines_with))}): it may be several entries read as one."})
                     count += 1
     return count

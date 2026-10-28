@@ -15,6 +15,9 @@ from .answers import cells as _cells
 from .lines import Lines
 from .other import UNCITED_RUN
 
+#: what each entry flag asks of the reader
+FLAGS = {"merged": "may be merged", "twin": "check the pairing"}
+
 
 def write_outputs(built: Mapping[str, Any], folder: Path) -> None:
     folder.mkdir(parents=True, exist_ok=True)
@@ -77,7 +80,7 @@ def review(built: Mapping[str, Any]) -> str:
         out += ["", f"## {cat}"]
         for sub, node in subs.items():
             for i, entry in enumerate(node if isinstance(node, list) else [node]):
-                head = f"### {sub}" + (f" #{i + 1}" if isinstance(node, list) else "") + (" (may be merged)" if entry.get("flags") else "")
+                head = f"### {sub}" + (f" #{i + 1}" if isinstance(node, list) else "") + "".join(f" ({FLAGS.get(f['code'], 'check')})" for f in entry.get("flags") or [])
                 src = entry.get("lines") or []
                 out += ["", head + (f"  (lines {', '.join(map(str, src))})" if src else "")]
                 if src:

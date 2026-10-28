@@ -150,7 +150,8 @@ holds personal data and is made readable by its owner only.
 - **A bilingual CV states everything twice.** Twins are found by record-linkage
   blocking: an Arabic and a Latin entry that keep the same years (and level), one
   to one in CV order, or two entries with the same names and dates. The Latin one
-  is kept, with the Arabic names beside it.
+  is kept, with the Arabic names beside it. Where other items share a pair's dates,
+  CV order chose the pair, and the entry is flagged for a person to check.
 - **Two posts at once are not two careers.** Totals, and each skill's months, are the
   union of the roles' months; asas-cv's own total sums them.
 - **A bilingual CV's second skills list is not read twice.** An Arabic list splits as

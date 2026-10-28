@@ -66,6 +66,22 @@ def test_an_item_in_both_languages_and_repeated_folds_in_one_pass(model):
     assert merge_twins(p, model) == 0  # nothing left for a second pass
 
 
+def test_a_pairing_chosen_by_cv_order_alone_is_flagged(model):
+    def job(title, at, start="2015"):
+        return {"lines": at, "fields": {"Job title": {"kind": "copied", "value": title},
+                                        "Start date": {"kind": "normalised", "value": start}, "End date": {"kind": "normalised", "value": "2023"}}}
+
+    p = {"Work experience": {"Professional": [job("مدير", [1]), job("مستشار", [2]), job("Manager", [10]), job("Teacher", [11], "1999")]}}
+    assert merge_twins(p, model) == 1
+    jobs = p["Work experience"]["Professional"]
+    assert [j["fields"]["Job title"]["value"] for j in jobs] == ["Manager", "مستشار", "Teacher"]  # the pair takes the first one's place
+    assert jobs[0]["flags"][0]["code"] == "twin" and "flags" not in jobs[1]  # two Arabic roles share its dates: CV order chose
+    flag_merged(p, model, lines(*["Role, 2015 - 2023"] * 12))
+    assert [f["code"] for f in jobs[0]["flags"]] == ["twin"]  # the merged check keeps other checks' flags
+    clean = {"Work experience": {"Professional": [job("مدير", [1]), job("Manager", [10])]}}
+    assert merge_twins(clean, model) == 1 and "flags" not in clean["Work experience"]["Professional"][0]
+
+
 def test_skills_and_languages_are_never_twins(model):
     p = {"Technical skills": {"Languages": [{"lines": [1], "fields": {"Language": {"kind": "copied", "value": "Arabic"}}},
                                             {"lines": [2], "fields": {"Language": {"kind": "copied", "value": "Arabic"}}}]}}

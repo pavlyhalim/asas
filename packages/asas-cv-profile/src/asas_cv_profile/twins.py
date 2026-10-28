@@ -16,6 +16,12 @@ translation no earlier entry took, with every repeat of either. Translations pai
 one, so three roles stated twice stay three; repeats read the same, so all of them go.
 One pass leaves nothing a second would fold. The Latin one is kept, with every copy's
 lines, any field it lacks, and each Arabic name under ``arabic`` beside its own.
+
+Dates cannot tell two items apart when they share them: where more than one item in
+either language has a pair's dates, the pair was chosen by CV order alone, and the kept
+entry gets a ``twin`` flag for a person to check. An Arabic item and a different Latin
+one that alone share their dates fold with no flag: telling them apart needs their
+meaning, which no rule here reads.
 """
 
 from __future__ import annotations
@@ -65,9 +71,11 @@ def pair_twins(node: list[dict], sub: Section) -> tuple[list[dict], int]:
     keys = [(script(e, sub), identity(e, sub), kept_in_translation(e, sub)) for e in node]
     by_kept: dict[tuple, list[int]] = defaultdict(list)
     by_name: dict[tuple[str, str], list[int]] = defaultdict(list)
+    items: dict[tuple, dict[str, set]] = defaultdict(lambda: defaultdict(set))  # the distinct items sharing each date key, by script
     for k, (s, ident, kept) in enumerate(keys):
         if kept:
             by_kept[kept].append(k)
+            items[kept][s].add(ident or k)
         if ident:  # a repeat needs dates on the first of the two only
             by_name[(s, ident)].append(k)
     gone: set[int] = set()
@@ -83,6 +91,9 @@ def pair_twins(node: list[dict], sub: Section) -> tuple[list[dict], int]:
         keep = t if t is not None and s == "ar" else i
         for j in sorted(copies - {keep}):  # in the CV's order
             _fold(out[keep], out[j], translated=keys[j][0] != keys[keep][0])
+        if t is not None and any(len(v) > 1 for v in items[kept].values()):
+            out[keep].setdefault("flags", []).append({"code": "twin", "message": (
+                "Folded with its copy in the other language by dates that other entries share: check the two are the same.")})
         out[i] = out[keep]
         gone |= copies - {i}
     return [e for k, e in enumerate(out) if k not in gone], len(gone)

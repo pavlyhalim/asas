@@ -99,6 +99,7 @@ const el = (tag, attrs = {}, ...kids) => {
   return n;
 };
 const NEEDS_LOOK = new Set(["unverified", "bad_lines", "inferred"]);
+const FLAGS = { merged: "May be merged", twin: "Check the pairing" };
 let current = null;
 
 function status(msg, error = false) { const s = $("#status"); s.textContent = msg; s.className = error ? "error" : ""; }
@@ -161,7 +162,7 @@ function renderProfile(b) {
           tr.addEventListener("click", (e) => { e.stopPropagation(); highlight(cellLines); });
           rows.push(tr);
         }
-        const flags = (entry.flags || []).map((f) => el("div", { class: "warn", text: "May be merged: " + f.message }));
+        const flags = (entry.flags || []).map((f) => el("div", { class: "warn", text: (FLAGS[f.code] || "Check") + ": " + f.message }));
         if (!rows.length && !flags.length) return;
         const head = el("div", { class: "head" },
           el("strong", { text: sub + (Array.isArray(node) ? ` #${i + 1}` : "") }),
