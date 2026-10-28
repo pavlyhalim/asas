@@ -151,3 +151,54 @@ def test_a_word_file_that_unpacks_too_far_is_refused_before_reading(monkeypatch)
     with pytest.raises(Refused) as exc:
         read_cv(cv, "cv.docx")
     assert exc.value.code == "document_unreadable"
+
+
+def test_document_intelligence_reads_capped_pages_then_deletes_the_cv_and_closes(monkeypatch):
+    di = pytest.importorskip("azure.ai.documentintelligence")
+    from types import SimpleNamespace
+
+    from azure.core.exceptions import ServiceRequestError, ServiceResponseError
+
+    from asas_cv_profile import LayoutReader
+
+    calls = []
+
+    class FakeClient:
+        def __init__(self, endpoint, credential, **kwargs):
+            calls.append(("open", type(credential).__name__))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            calls.append(("close",))
+
+        def begin_analyze_document(self, model, body, pages, output_content_format):
+            calls.append(("analyze", model, pages))
+            def result():
+                if fail_read:
+                    raise ServiceResponseError("busy")
+                return SimpleNamespace(content="# Sara Example\n\nSenior Data Analyst", pages=[1, 2])
+
+            return SimpleNamespace(result=result, details={"operation_id": "op-1"})
+
+        def delete_analyze_result(self, model, result_id):
+            calls.append(("delete", model, result_id))
+            if fail_delete:
+                raise ServiceRequestError("down")
+
+    monkeypatch.setattr(di, "DocumentIntelligenceClient", FakeClient)
+    fail_delete = fail_read = False
+    text = LayoutReader("https://example.cognitiveservices.azure.com", "k", max_pages=40).read(b"%PDF-1.7")
+    assert text.lines == ["# Sara Example", "Senior Data Analyst"] and text.pages == 2
+    assert calls == [("open", "AzureKeyCredential"), ("analyze", "prebuilt-layout", "1-40"),
+                     ("delete", "prebuilt-layout", "op-1"), ("close",)]
+    calls.clear()
+    fail_delete = True  # a failed delete keeps the read: Azure deletes it after 24 hours anyway
+    assert LayoutReader("https://example.cognitiveservices.azure.com", "k").read(b"%PDF-1.7").pages == 2
+    assert calls[-2:] == [("delete", "prebuilt-layout", "op-1"), ("close",)]
+    calls.clear()
+    fail_delete, fail_read = False, True  # a failed read is deleted too, not kept for 24 hours
+    with pytest.raises(Refused) as exc:
+        LayoutReader("https://example.cognitiveservices.azure.com", "k").read(b"%PDF-1.7")
+    assert exc.value.code == "reader_unavailable" and calls[-2:] == [("delete", "prebuilt-layout", "op-1"), ("close",)]

@@ -59,6 +59,7 @@ dev = [
     "fastapi>=0.110,<1",
     "python-multipart>=0.0.9",
     "markdownify>=0.13",
+    "azure-ai-documentintelligence>=1.0",
 ]
 
 [project.scripts]

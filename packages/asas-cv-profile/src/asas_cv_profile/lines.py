@@ -5,7 +5,8 @@ value of the profile cites.
   ``docintel`` extra), Markdown out: reading order, columns, OCR for scans and Arabic
   come from it, and its HTML tables become one Markdown row a line (markdownify), so a
   citation names a row. Connection drops, 429 and 5xx are retried by azure-core's own
-  policy.
+  policy. Only the first ``max_pages`` pages are sent for reading, and each read deletes
+  the file and its result from Azure straight after (Azure keeps them 24 hours otherwise).
 - **Word and plain text**: asas-cv's reader (document order, tables under their
   headings), plus the Word page headers it leaves out, where a CV often keeps the name
   and contact lines, put first.
@@ -93,11 +94,15 @@ class Lines:
 @dataclass(frozen=True)
 class LayoutReader:
     """Azure Document Intelligence as a :class:`~asas_cv_profile.seams.PdfReader`, with
-    the endpoint and key of the host's resource (the package reads no settings)."""
+    the endpoint and key of the host's resource (the package reads no settings).
+
+    Azure keeps the file and its result for 24 hours unless asked to delete them, so each
+    read deletes its own straight after, a failed one too. Only the first ``max_pages`` pages are read (and billed)."""
 
     endpoint: str
     key: str = field(repr=False)  # never printed, logged or kept in a result
     model: str = "prebuilt-layout"
+    max_pages: int = MAX_PAGES
 
     def read(self, data: bytes) -> Lines:
         try:
@@ -111,13 +116,21 @@ class LayoutReader:
         # azure-core's own retry policy: connection drops, 429 and 5xx, backing off
         # 2, 4, 8 ... seconds, about two minutes in all. Past that the file is refused
         # as reader_unavailable, and a later run reads it again.
-        client = DocumentIntelligenceClient(self.endpoint, AzureKeyCredential(self.key), retry_total=6,
-                                            retry_backoff_factor=2, retry_backoff_max=60)
-        try:
-            poller = client.begin_analyze_document(self.model, body=data, output_content_format=DocumentContentFormat.MARKDOWN)
-            result = poller.result()
-        except AzureError as exc:
-            raise Refused("reader_unavailable", f"Document Intelligence could not be reached or failed: {type(exc).__name__}.") from None
+        with DocumentIntelligenceClient(self.endpoint, AzureKeyCredential(self.key), retry_total=6, retry_backoff_factor=2,
+                                        retry_backoff_max=60) as client:
+            poller = None
+            try:
+                poller = client.begin_analyze_document(self.model, body=data, pages=f"1-{self.max_pages}",
+                                                       output_content_format=DocumentContentFormat.MARKDOWN)
+                result = poller.result()
+            except AzureError as exc:
+                raise Refused("reader_unavailable", f"Document Intelligence could not be reached or failed: {type(exc).__name__}.") from None
+            finally:  # read or failed, once Azure holds the file it is deleted now
+                if poller is not None:
+                    try:
+                        client.delete_analyze_result(self.model, poller.details["operation_id"])
+                    except AzureError as exc:  # the read stands; Azure deletes it after 24 hours anyway
+                        log.warning("Document Intelligence kept this result (it deletes it after 24 hours): %s", type(exc).__name__)
         return Lines(clean(layout_markdown(result.content or "").splitlines()), "docintel", pages=len(result.pages or []))
 
 
