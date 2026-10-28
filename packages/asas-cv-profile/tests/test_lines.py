@@ -118,3 +118,16 @@ def test_a_long_section_is_cut_where_items_start():
 
 def test_a_markdown_heading_is_marked_whatever_its_words():
     assert marked("## Grants won") and not marked("## 2019 Grants") and not marked("Grants won")
+
+
+def test_a_file_whose_bytes_are_not_the_type_its_name_claims_is_refused():
+    reader = FakePdf(Lines(["Sara Example"] * 3, "docintel"))
+    for data, name in ((b"GIF89a" + b"\0" * 64, "cv.pdf"), (b"%PDF-1.7", "cv.docx"), (b"PK\x03\x04 not a zip", "cv.docx")):
+        with pytest.raises(Refused) as exc:
+            read_cv(data, name, pdf=reader)
+        assert exc.value.code == "document_unsupported_type"
+    assert reader.read_count == 0  # turned away unread
+    with pytest.raises(Refused) as exc:
+        read_cv(b"", "cv.pdf", pdf=reader)
+    assert exc.value.code == "document_empty"
+

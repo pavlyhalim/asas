@@ -10,7 +10,8 @@ value of the profile cites.
   headings), plus the Word page headers it leaves out, where a CV often keeps the name
   and contact lines, put first.
 
-A file is turned away before anything reads it past ``max_pages``; a long file must
+A file is turned away before anything reads it when its first bytes are not the type its
+name claims, or past ``max_pages``; a long file must
 look like a CV (two of the headings nearly every CV has); a file with almost no
 letters holds no CV. Each refusal is a :class:`Refused` with a stable code.
 """
@@ -21,6 +22,7 @@ import io
 import logging
 import re
 import unicodedata
+import zipfile
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -145,6 +147,9 @@ def read_cv(data: bytes, filename: str, *, pdf: PdfReader | None = None, heading
         content_type = resolve_content_type(filename, None)
     except ExtractionError as exc:
         raise Refused(exc.code, str(exc)) from None
+    if not data:
+        raise Refused("document_empty", "The file is empty.")
+    _check_contents(data, content_type)
     if content_type == PDF_CONTENT_TYPE:
         if (pages := page_count(data)) > max_pages:
             raise Refused("document_too_many_pages", f"The PDF has {pages} pages; a CV is rarely over {max_pages}. Probably another document.")
@@ -167,6 +172,23 @@ def read_cv(data: bytes, filename: str, *, pdf: PdfReader | None = None, heading
         text.warnings.append(f"{long} of {len(text.lines)} lines run over {LONG_LINE} characters (a page read as one line): "
                              "a value checked against such a line proves little.")
     return text
+
+
+def _check_contents(data: bytes, content_type: str) -> None:
+    """The first bytes must be the type the name claims (OWASP's File Upload Cheat Sheet:
+    the signature, not the name)."""
+    from asas_cv import DOCX_CONTENT_TYPE, PDF_CONTENT_TYPE
+
+    if content_type == PDF_CONTENT_TYPE and b"%PDF-" not in data[:1024]:  # the window PDF readers allow
+        raise Refused("document_unsupported_type", "The file is named .pdf but is not a PDF.")
+    if content_type != DOCX_CONTENT_TYPE:
+        return
+    try:
+        parts = zipfile.ZipFile(io.BytesIO(data)).infolist()
+    except zipfile.BadZipFile:
+        parts = []
+    if not any(part.filename == "[Content_Types].xml" for part in parts):  # every Word file has one
+        raise Refused("document_unsupported_type", "The file is named .docx but is not a Word document.")
 
 
 def _asas_cv(data: bytes, filename: str) -> Lines:
