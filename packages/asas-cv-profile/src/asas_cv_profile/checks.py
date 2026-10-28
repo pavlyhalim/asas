@@ -194,7 +194,8 @@ def _months_in(text: str) -> frozenset[tuple[int, int | None]]:
     out |= _hijri(text)
     out |= {got for phrase in _SHORT.findall(text) if (got := named_month(phrase))}
     out |= {got for word, yy in _BARE.findall(text) if (got := named_month(f"{word} '{yy}"))}
-    for line in text.splitlines():
+    rows = text.splitlines()
+    for at, line in enumerate(rows):
         toks = list(_TOKEN.finditer(line))
         for i, tok in enumerate(toks):
             if not _YEAR.fullmatch(tok.group()):
@@ -211,7 +212,19 @@ def _months_in(text: str) -> frozenset[tuple[int, int | None]]:
             after = _AFTER.match(line, tok.end())
             if after and (got := named_month(f"{tok.group()} {after.group(1)}")):
                 out.add(got)
+            elif i == len(toks) - 1 and at + 1 < len(rows) and (got := _month_wrapped(tok.group(), rows[at + 1])):
+                out.add(got)
     return frozenset(out)
+
+
+def _month_wrapped(year: str, below: str) -> tuple[int, int] | None:
+    """A reference list's "2025 Sep;56(5)" with the line break after the year: the month
+    opens the next line and has no year of its own, so "2019" over "May 2020 - Present"
+    is two dates, not one."""
+    toks = _TOKEN.findall(below)
+    if not toks or not re.fullmatch(r"[^\W\d_]{3,}\.?", toks[0]) or (len(toks) > 1 and _YEAR.fullmatch(toks[1])):
+        return None
+    return named_month(f"{year} {toks[0]}")
 
 
 def date_found(value: str, cited: str) -> bool:

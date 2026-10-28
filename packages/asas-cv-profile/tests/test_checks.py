@@ -88,6 +88,13 @@ def test_dates_in_reference_lists_and_glued_text():
     assert not checks.date_found("2019-03", "2019 - مارس 2021")  # the month after a dash is the next date's
 
 
+def test_a_reference_date_broken_after_its_year():
+    assert checks.date_found("2025-09", "J Example. Smith A, Jones B. Title of the paper. 2025\nSep;56(5):101-9.")
+    assert not checks.date_found("2019-05", "Analyst, Acme 2019\nMay 2020 - Present")  # two dates: May has its own year
+    text = lines("Paper one.", "Paper two. 2019", "Paper three.", "Paper four.", "May;12(4):1-9.", "Paper five.")
+    assert not checks.date_found("2019-05", cited_text([1, 6], text))  # lines 3 and 4 sit between: not one date
+
+
 def test_an_empty_field_is_never_bad_lines_and_phones_match_by_number():
     phone = spec("phone", note="E.164")
     assert checks.check_value(phone, None, "", False) == "empty"

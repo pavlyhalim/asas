@@ -60,9 +60,15 @@ def spans(ranges: Any, size: int) -> tuple[list[int], bool]:
 
 
 def cited_text(entry_lines: list[int], text: Lines) -> str:
-    """The entry's lines and the lines either side: a value often wraps across a line break."""
+    """The entry's lines and the lines either side: a value often wraps across a line break.
+    Lines that are not next to each other in the CV are set apart by an empty line."""
     window = sorted({m for n in entry_lines for m in (n - 1, n, n + 1)})
-    return " \n".join(text.line(n) or "" for n in window)
+    out = []
+    for i, n in enumerate(window):
+        if i:
+            out.append(" \n" if n == window[i - 1] + 1 else " \n\n")
+        out.append(text.line(n) or "")
+    return "".join(out)
 
 
 def items(output: Any, sub: Section) -> list:
