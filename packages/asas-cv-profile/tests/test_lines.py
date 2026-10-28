@@ -131,3 +131,23 @@ def test_a_file_whose_bytes_are_not_the_type_its_name_claims_is_refused():
         read_cv(b"", "cv.pdf", pdf=reader)
     assert exc.value.code == "document_empty"
 
+
+def test_a_word_file_that_unpacks_too_far_is_refused_before_reading(monkeypatch):
+    import io
+    import zipfile
+
+    monkeypatch.setattr(lines_mod, "MIN_LETTERS", 0)
+    cv = docx("Sara Example")
+    read_cv(cv, "cv.docx")
+    buf = io.BytesIO(cv)
+    with zipfile.ZipFile(buf, "a", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("word/media/padding.bin", b"\0" * 2**21)  # 2 MB of zeros packs to a few KB
+    monkeypatch.setattr(lines_mod, "MAX_UNPACKED", 2**20)
+    with pytest.raises(Refused) as exc:
+        read_cv(buf.getvalue(), "cv.docx")
+    assert exc.value.code == "document_unreadable"
+    monkeypatch.setattr(lines_mod, "MAX_UNPACKED", 2**30)
+    monkeypatch.setattr(lines_mod, "MAX_PARTS", 5)
+    with pytest.raises(Refused) as exc:
+        read_cv(cv, "cv.docx")
+    assert exc.value.code == "document_unreadable"

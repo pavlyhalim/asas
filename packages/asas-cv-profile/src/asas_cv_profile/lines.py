@@ -11,7 +11,8 @@ value of the profile cites.
   and contact lines, put first.
 
 A file is turned away before anything reads it when its first bytes are not the type its
-name claims, or past ``max_pages``; a long file must
+name claims, when a Word file unpacks past ``MAX_UNPACKED`` (a zip bomb), or past
+``max_pages``; a long file must
 look like a CV (two of the headings nearly every CV has); a file with almost no
 letters holds no CV. Each refusal is a :class:`Refused` with a stable code.
 """
@@ -51,6 +52,9 @@ LONG_LINE = 500
 #: of 1,500 real PDF CVs the median ran 3 pages, 1 in 20 over 13 and 8 over 30. Past
 #: MAX_PAGES a file is turned away before anything reads it; past CHECK_PAGES it must look like a CV
 MAX_PAGES, CHECK_PAGES = 40, 10
+#: a Word file is a zip: of 1,273 real Word CVs the largest unpacked to 26 MB in 46 parts.
+#: zipfile stops each part at its stated size, so the stated sizes bound what reading takes
+MAX_UNPACKED, MAX_PARTS = 100 * 2**20, 1000
 
 
 class Refused(Exception):
@@ -175,8 +179,9 @@ def read_cv(data: bytes, filename: str, *, pdf: PdfReader | None = None, heading
 
 
 def _check_contents(data: bytes, content_type: str) -> None:
-    """The first bytes must be the type the name claims (OWASP's File Upload Cheat Sheet:
-    the signature, not the name)."""
+    """The first bytes must be the type the name claims, and a Word file must unpack to a
+    size a CV has (OWASP's File Upload Cheat Sheet: the signature, not the name; the
+    unpacked size, not the upload's)."""
     from asas_cv import DOCX_CONTENT_TYPE, PDF_CONTENT_TYPE
 
     if content_type == PDF_CONTENT_TYPE and b"%PDF-" not in data[:1024]:  # the window PDF readers allow
@@ -189,6 +194,9 @@ def _check_contents(data: bytes, content_type: str) -> None:
         parts = []
     if not any(part.filename == "[Content_Types].xml" for part in parts):  # every Word file has one
         raise Refused("document_unsupported_type", "The file is named .docx but is not a Word document.")
+    if len(parts) > MAX_PARTS or sum(part.file_size for part in parts) > MAX_UNPACKED:
+        raise Refused("document_unreadable", f"The Word file unpacks to over {MAX_UNPACKED // 2**20} MB or "
+                      f"{MAX_PARTS} parts; a CV is far smaller.")
 
 
 def _asas_cv(data: bytes, filename: str) -> Lines:
