@@ -197,8 +197,13 @@ def test_document_intelligence_reads_capped_pages_then_deletes_the_cv_and_closes
     assert retries["retry_total"] == retries["retry_status"] == 6  # 429 and 5xx too, not azure-core's default of three
     calls.clear()
     fail_delete = True  # a failed delete keeps the read: Azure deletes it after 24 hours anyway
-    assert LayoutReader("https://example.cognitiveservices.azure.com", "k").read(b"%PDF-1.7").pages == 2
-    assert calls[-2:] == [("delete", "prebuilt-layout", "op-1"), ("close",)]
+    entra = object()
+    assert LayoutReader("https://example.cognitiveservices.azure.com", credential=entra).read(b"%PDF-1.7").pages == 2
+    assert calls[0] == ("open", "object") and calls[-1] == ("close",)
+    with pytest.raises(ValueError):
+        LayoutReader("https://example.cognitiveservices.azure.com")
+    with pytest.raises(ValueError):
+        LayoutReader("https://example.cognitiveservices.azure.com", "k", credential=entra)
     calls.clear()
     fail_delete, fail_read = False, True  # a failed read is deleted too, not kept for 24 hours
     with pytest.raises(Refused) as exc:

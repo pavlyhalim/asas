@@ -13,7 +13,7 @@ First release.
   field roles, computed fields and the region phone numbers are read in; checked on load.
 - **Lines**: `read_cv` with Document Intelligence for PDFs (`LayoutReader`, the
   `docintel` extra: the first 40 pages read, the file and its result deleted from
-  Azure after each read, a failed one too) and asas-cv for Word and text; refusals as `Refused` with a code.
+  Azure after each read, a failed one too; a key or an Entra ID credential) and asas-cv for Word and text; refusals as `Refused` with a code.
 - **Calls**: `Asker` runs the package's profile-builder release on asas-agent, with a
   cap on calls at once and a tokens-a-minute bucket.
 - **Build**: `ProfileBuilder.build`, `recheck` (no model call) and `other_again`;

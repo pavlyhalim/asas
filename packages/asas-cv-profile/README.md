@@ -50,6 +50,9 @@ asker = asas_cv_profile.Asker(
     tokens_per_minute=100_000,                           # the key's limit; 0 for none
 )
 builder = asas_cv_profile.ProfileBuilder(model, asker, pdf=asas_cv_profile.LayoutReader(endpoint, di_key))
+# or with no key, as Microsoft recommends for production: LayoutReader(endpoint, credential=azure.identity.ManagedIdentityCredential())
+# (the identity needs the Cognitive Services User role on the resource, and the endpoint
+#  must be the resource's own subdomain: Entra ID does not work on regional endpoints)
 
 try:
     built = await builder.build(raw, "cv.pdf")

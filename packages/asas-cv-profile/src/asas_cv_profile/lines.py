@@ -26,7 +26,7 @@ import re
 import unicodedata
 import zipfile
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from asas_cv import CODES as _READ_CODES
 
@@ -94,15 +94,24 @@ class Lines:
 @dataclass(frozen=True)
 class LayoutReader:
     """Azure Document Intelligence as a :class:`~asas_cv_profile.seams.PdfReader`, with
-    the endpoint and key of the host's resource (the package reads no settings).
+    the endpoint of the host's resource and its key or an Entra ID ``credential`` (an
+    azure-identity credential, such as a managed identity); the package reads no settings.
 
     Azure keeps the file and its result for 24 hours unless asked to delete them, so each
     read deletes its own straight after, a failed one too. Only the first ``max_pages`` pages are read (and billed)."""
 
     endpoint: str
-    key: str = field(repr=False)  # never printed, logged or kept in a result
+    key: str | None = field(default=None, repr=False)  # never printed, logged or kept in a result
     model: str = "prebuilt-layout"
+    # Microsoft recommends Entra ID with a managed identity for production, so the app
+    # stores no key; a key suits local runs. See "Use API keys with caution" in
+    # https://learn.microsoft.com/azure/ai-services/document-intelligence/quickstarts/get-started-sdks-rest-api
+    credential: Any = field(default=None, repr=False)
     max_pages: int = MAX_PAGES
+
+    def __post_init__(self) -> None:
+        if (self.key is None) == (self.credential is None):
+            raise ValueError("LayoutReader takes a key or a credential, one of the two")
 
     def read(self, data: bytes) -> Lines:
         try:
@@ -117,7 +126,8 @@ class LayoutReader:
         # (retry_status, or 429 and 5xx get its default of three), waiting 4, 8, 16, 32
         # and 60 seconds, about two minutes in all. Past that the file is refused as
         # reader_unavailable, and a later run reads it again.
-        with DocumentIntelligenceClient(self.endpoint, AzureKeyCredential(self.key), retry_total=6, retry_status=6,
+        credential = AzureKeyCredential(self.key) if self.key is not None else self.credential
+        with DocumentIntelligenceClient(self.endpoint, credential, retry_total=6, retry_status=6,
                                         retry_backoff_factor=2, retry_backoff_max=60) as client:
             poller = None
             try:
