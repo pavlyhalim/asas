@@ -124,6 +124,10 @@ asas-cv-profile other   runs/a/*/profile.json --profile-model profile.yaml # oth
 asas-cv-profile serve   --profile-model profile.yaml --out runs/a          # upload page, 127.0.0.1:8765
 ```
 
+The upload page answers only to this machine's Host names and refuses an upload sent
+from another site's page. A file is read only when its first bytes match its type, and
+a Word file only when it unpacks to under 100 MB in under 1,000 parts.
+
 Options: `--finish module:function`, `--agents DIR` (your own profile-builder
 folder), `--chat-completions` (a gateway without the Responses API),
 `--tokens-per-minute`, `--parallel`, `--retries`, `--timeout`, `--split` (calls

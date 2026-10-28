@@ -25,3 +25,8 @@ First release.
   its Gregorian date.
 - **Command line** `asas-cv-profile` (`schema`, `one`, `run`, `recheck`, `other`,
   `serve`) and the upload page (`upload_router`, the `serve` extra).
+- **Files and the page, by OWASP's File Upload and CSRF cheat sheets**: a file whose
+  first bytes are not the type its name claims is refused unread, and so is a Word
+  file that unpacks past 100 MB or 1,000 parts; the page refuses an upload from
+  another site's page, `serve` answers only to this machine's Host names, and the
+  upload is kept under the type it was read as.
