@@ -51,8 +51,19 @@ def test_dates_in_every_arabic_region_and_the_hijri_calendar():
     assert checks.date_found("2015-06", "يونيه 2015")  # Egypt, which CLDR lacks
     assert checks.date_found("2016-10", "اكتوبر 2016") and checks.date_found("2019-03", "15th March 2019")
     assert checks.date_found("2018-11", "تخرج 15/3/1440 هـ")  # a full Hijri date, as the Gregorian month it falls in
-    assert not checks.date_found("2019-10", "رمضان 1440")  # a Hijri month alone is not guessed
+    assert not checks.date_found("2019-10", "رمضان 1440")  # Ramadan 1440 is May and June 2019
     assert not checks.date_found("2015-10", "Graduated 2015")  # a year alone never stands for a month
+
+
+def test_a_hijri_month_by_name():
+    # Ramadan 1436 runs from 18 June to 16 July 2015: with no day, both months count
+    assert checks.date_found("2015-06", "رمضان 1436") and checks.date_found("2015-07", "رمضان 1436هـ")
+    assert checks.date_found("2015-06", "1 رمضان 1436") and not checks.date_found("2015-07", "1 رمضان 1436")
+    assert checks.date_found("2023-08", "15 محرم 1445") and checks.date_found("2015", "رمضان ١٤٣٦")
+    assert checks.date_found("2014-12", "Rabi al-Awwal 1436") and checks.date_found("2015-06", "Ramadan, 1436")
+    assert not checks.date_found("2015-06", "رجب محمد 1436")  # a name, not the month: no year follows it
+    assert checks.from_hijri("1436", "رمضان 1436", month=False) == "2015"
+    assert checks.from_hijri("1436", "رمضان 1436", month=True) is None  # June or July
 
 
 def test_dates_in_reference_lists_and_glued_text():
@@ -73,6 +84,20 @@ def test_a_month_the_cv_does_not_give_is_cut_to_the_year():
     assert checks.year_only("2019-03", "Presented at the annual meeting, 2019.") == "2019"
     assert checks.year_only("2019-03", "Presented in June 2019.") is None  # another month: a real mismatch
     assert checks.year_only("2019", "2019.") is None  # already the year
+
+
+def test_hijri_dates_in_any_order_and_a_copied_hijri_year():
+    assert checks.date_found("2015-10", "Member since 12-28-1436")  # month first: 28 is no month
+    assert checks.date_found("2018-01", "6-5-1439") and checks.date_found("2018-02", "6-5-1439")  # both readings fit
+    assert checks.date_found("2018-11", "1440/3/15")  # year first
+    assert checks.from_hijri("1436", "Member since 12-28-1436", month=True) == "2015-10"
+    assert checks.from_hijri("1436", "Member since 12-28-1436", month=False) == "2015"
+    assert checks.from_hijri("1439", "Member 6-5-1439", month=True) is None  # two readings, two months: left as it is
+    assert checks.from_hijri("1437", "Member 1437", month=True) is None  # a Hijri year alone spans two Gregorian ones
+    assert checks.from_hijri("2015", "12-28-1436", month=True) is None
+    assert checks.corrected_date(spec("date"), "1436", "عضو منذ ١٢-٢٨-١٤٣٦") == "2015-10"
+    assert checks.corrected_date(spec("date"), "2019-03", "Presented, 2019.") == "2019"
+    assert checks.corrected_date(spec("string"), "1436", "12-28-1436") is None
 
 
 def test_what_a_ratio_cannot_see_is_checked_first():

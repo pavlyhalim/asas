@@ -179,8 +179,8 @@ def entry_of(item: Any, sub: Section, text: Lines, notes: list[str]) -> dict | N
             cell["check"] = checks.check_value(spec, value, cited, bool(nums_t))
         else:
             cell["check"] = checks.check_value(spec, value, cited, bool(nums))
-            if cell["check"] == "unverified" and spec.type == "date" and (year := checks.year_only(value, cited)):
-                cell["was"], value, cell["check"] = value, year, "verified"
+            if cell["check"] == "unverified" and (fixed := checks.corrected_date(spec, value, cited)):
+                cell["was"], value, cell["check"] = value, fixed, checks.check_value(spec, fixed, cited, True)
         cell["value"] = value
         if cell["check"] != "empty":
             fields[spec.name] = cell
@@ -231,6 +231,7 @@ def recheck_values(profile: dict, model_sections: list[Section], text: Lines) ->
                     else:
                         cited = cited_text(lines, text)
                         cell["check"] = checks.check_value(spec, cell["value"], cited, bool(lines))
-                        if cell["check"] == "unverified" and spec.type == "date" and (year := checks.year_only(cell["value"], cited)):
-                            cell["was"], cell["value"], cell["check"] = cell["value"], year, "verified"
+                        if cell["check"] == "unverified" and (fixed := checks.corrected_date(spec, cell["value"], cited)):
+                            cell["was"], cell["value"] = cell["value"], fixed
+                            cell["check"] = checks.check_value(spec, fixed, cited, True)
                 entry["fields"] = {k: c for k, c in entry.get("fields", {}).items() if c.get("check") != "empty"}

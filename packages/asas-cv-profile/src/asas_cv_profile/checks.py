@@ -15,7 +15,8 @@ Each value gets one word:
 
 Libraries, not hand rules: Arabic letter folding from CAMeL Tools (NYU Abu Dhabi, in
 :mod:`.arabic`), fuzzy matching from RapidFuzz, dates from dateparser with CLDR's
-locale data (every Arabic region's month names) and its Hijri calendar.
+locale data (every Arabic region's month names), and the Hijri calendar from hijridate
+(Umm al-Qura), month names included.
 """
 from __future__ import annotations
 
@@ -82,7 +83,28 @@ _DAYS = r"\d{1,2}(?:\s?[-–]\s?\d{1,2})?"  # a day, or a range of days
 _YM = re.compile(r"(?<!\d)((?:19|20)\d{2})[-/.](\d{1,2})(?!\d)")
 _DMY = re.compile(rf"(?<![\d/.\-])(?:{_DAYS}\s?[/.\-])?(\d{{1,2}})[/.\-]\s?((?:19|20)\d{{2}})(?!\d)")
 _DM_Y = re.compile(rf"(?<![\d/.\-]){_DAYS}\s?[/.\-](\d{{1,2}})\s+((?:19|20)\d{{2}})(?!\d)")
-_HIJRI = re.compile(r"(?<![\d/.\-])(?:\d{1,2}[/.\-]\d{1,2}[/.\-]1[34]\d{2}|1[34]\d{2}[/.\-]\d{1,2}[/.\-]\d{1,2})(?![\d/.\-])")
+#: a date in three numbers: a Hijri one when its year is 13xx or 14xx
+_THREE = re.compile(r"(?<![\d/.\-])(\d{1,4})[/.\-](\d{1,2})[/.\-](\d{1,4})(?![\d/.\-])")
+_HIJRI_YEAR = re.compile(r"1[34]\d{2}")
+
+
+_QUOTES = str.maketrans("", "", "'’ʻ`")
+
+
+def _for_hijri(text: str) -> str:
+    return fold(text).casefold().translate(_QUOTES)
+
+
+@lru_cache(maxsize=1)
+def _hijri_named() -> tuple[re.Pattern[str], dict[str, int]]:
+    """A Hijri month by name and its year ("رمضان 1436", "1 Ramadan 1436"), a day before it
+    or not: the names are hijridate's, Arabic and English, folded as the text is
+    (:func:`_for_hijri`), so "Rabi al-Awwal" is "Rabi' al-Awwal"."""
+    from hijridate import Hijri
+
+    names = {_for_hijri(Hijri(1440, m, 1).month_name(lang)): m for lang in ("ar", "en") for m in range(1, 13)}
+    alts = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    return re.compile(rf"(?<!\w)(?:(\d{{1,2}})\s+)?({alts})\s*,?\s*(1[34]\d{{2}})(?!\d)"), names
 
 
 @lru_cache(maxsize=16384)
@@ -100,16 +122,48 @@ def named_month(phrase: str) -> tuple[int, int] | None:
     return None
 
 
-def _hijri(text: str) -> set[tuple[int, int]]:
-    """Full Hijri dates in numbers (15/3/1440), as the Gregorian month they fall in."""
-    from dateparser.calendars.hijri import HijriCalendar
+def _hijri_dates(text: str) -> set[tuple[int, int, int]]:
+    """Every reading of each Hijri date, as (year, month, day): a month by name with its
+    year ("1 رمضان 1436"; no day, its first and last), or in numbers with the year first
+    (1440/3/15), or last with the day first (15/3/1440) or the month first (3-15-1440);
+    both when both fit. hijridate refuses a day or month the calendar lacks."""
+    from hijridate import Hijri
 
     out = set()
-    for found_ in _HIJRI.findall(text):
-        got = HijriCalendar(found_).get_date()
-        if got and got.period == "day":
-            out.add((got.date_obj.year, got.date_obj.month))
+    named, months = _hijri_named()
+    for day, name, year in named.findall(_for_hijri(text)):
+        try:
+            first = Hijri(int(year), months[name], int(day) if day else 1)
+        except (ValueError, OverflowError):
+            continue
+        # no day: the month spans two Gregorian months, and both count
+        out |= {(first.year, first.month, first.day)} if day else {(first.year, first.month, 1), (first.year, first.month, first.month_length())}
+    for a, b, c in _THREE.findall(text):
+        if _HIJRI_YEAR.fullmatch(c):
+            readings = {(int(c), int(b), int(a)), (int(c), int(a), int(b))}
+        elif _HIJRI_YEAR.fullmatch(a):
+            readings = {(int(a), int(b), int(c))}
+        else:
+            continue
+        for y, m, d in readings:
+            try:
+                Hijri(y, m, d)
+            except (ValueError, OverflowError):
+                continue
+            out.add((y, m, d))
     return out
+
+
+def _gregorian(y: int, m: int, d: int) -> tuple[int, int]:
+    from hijridate import Hijri
+
+    g = Hijri(y, m, d).to_gregorian()
+    return g.year, g.month
+
+
+def _hijri(text: str) -> set[tuple[int, int]]:
+    """Hijri dates, as the Gregorian month each reading falls in."""
+    return {_gregorian(*h) for h in _hijri_dates(text)}
 
 
 @lru_cache(maxsize=4096)
@@ -175,6 +229,27 @@ def year_only(value, cited: str) -> str | None:
     stated = _months_in(cited)
     year = int(m.group(1))
     return m.group(1) if (year, None) in stated and not any(y == year and mo for y, mo in stated) else None
+
+
+def from_hijri(value, cited: str, *, month: bool) -> str | None:
+    """The Gregorian date of the Hijri date the lines state, when the model copied its
+    Hijri year as the value ("1436" for 12-28-1436). None unless the lines give exactly
+    one such Gregorian date: a Hijri year alone spans two Gregorian years."""
+    m = re.match(r"^(1[34]\d{2})(?:-(\d{1,2}))?(?:-\d{1,2})?$", str(value or "").strip())
+    if not m:
+        return None
+    year, mo = int(m.group(1)), int(m.group(2)) if m.group(2) else None
+    found_ = {_gregorian(*h) for h in _hijri_dates(cited.translate(DIGITS)) if h[0] == year and mo in (None, h[1])}
+    out = {f"{y:04d}-{gm:02d}" if month else f"{y:04d}" for y, gm in found_}
+    return out.pop() if len(out) == 1 else None
+
+
+def corrected_date(spec, value, cited: str) -> str | None:
+    """An unverified date written as the lines give it: the year alone when they give no
+    month (:func:`year_only`), or the Gregorian date of a Hijri date (:func:`from_hijri`)."""
+    if spec.type not in ("date", "year"):
+        return None
+    return (year_only(value, cited) if spec.type == "date" else None) or from_hijri(value, cited, month=spec.type == "date")
 
 
 def phone_found(value, cited: str) -> bool:

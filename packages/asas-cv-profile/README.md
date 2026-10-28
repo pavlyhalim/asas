@@ -12,7 +12,7 @@ release fill your sections, and settles the rest in code.
 - **The model reads, code checks.** One call fills the profile, each entry citing
   line ranges. Every value is then checked against its lines: names and titles by
   fuzzy match after Arabic folding, dates in however the CV writes them (every
-  Arabic region's month names, the Hijri calendar), numbers by what they say,
+  Arabic region's month names, Hijri dates in numbers in any order), numbers by what they say,
   phones as numbers. A match must also keep the value's numbers ("Level 4" is not
   "Level 5") and marks ("C++" is not "C#"), and one short or one Latin word is found
   as a word ("R" is not in "reports", "Java" is not "JavaScript"). A value the lines
@@ -140,7 +140,9 @@ holds personal data and is made readable by its owner only.
   rest checked; only the parts with no real line are asked again, in one call.
 - **One call over a long list stops partway.** On a CV over 250 lines, long lists
   at the back get calls of their own, cut where items start.
-- **A month the CV does not give** is cut to the year (`was` keeps the model's).
+- **A month the CV does not give** is cut to the year, and **a Hijri year copied as
+  the date** ("1436" for 12-28-1436) becomes the Gregorian month the lines' Hijri date
+  falls in, by hijridate, when only one reading fits (`was` keeps the model's).
 - **Skills stay in the CV's words.** A reworded skill is set back to the list item
   it came from, and items the model left out of a skills list are added
   (Resume-Matcher's splitter, Apache-2.0); each skill records whether it came from
