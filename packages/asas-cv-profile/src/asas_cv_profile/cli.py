@@ -176,13 +176,11 @@ def cmd_other(args) -> int:
 
 def cmd_serve(args) -> int:
     import uvicorn
-    from fastapi import FastAPI
 
-    from .web import upload_router
+    from .web import local_app, upload_router
 
     out = _out(args.out)
-    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-    app.include_router(upload_router(_builder(args, one_call=True), out, packed=_builder(args, one_call=False)))
+    app = local_app(upload_router(_builder(args, one_call=True), out, packed=_builder(args, one_call=False)))
     print(f"Upload page: http://127.0.0.1:{args.port}  (output in {out})")
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
     return 0

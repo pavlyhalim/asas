@@ -74,3 +74,27 @@ def test_the_upload_page_reads_a_cv_and_keeps_the_run(model, tmp_path):
     assert client.get("/files/../../etc/passwd").status_code == 404
     refused = client.post("/api/parse", files={"file": ("cv.docx", docx("Page 1"))})
     assert refused.status_code == 422 and refused.json()["detail"]["code"] == "document_too_little_text"
+
+
+def test_the_upload_page_refuses_other_sites_and_other_hosts(model, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from asas_cv_profile import upload_router
+    from asas_cv_profile.web import local_app
+
+    def answer(call, s):
+        return {"full_name": "Sara Example", "lines": [[1, 1]]} if s.name == "Name" else None
+
+    router = upload_router(ProfileBuilder(model, Scripted(model, answer)), tmp_path)
+    cv = docx("Sara Example", "Senior Data Analyst at Example Co since 2019, reporting for twelve departments across the group.",
+              "Built the monthly reporting pipeline and trained the analysts who run it.")
+    client = TestClient(local_app(router), base_url="http://127.0.0.1:8765")
+    for headers in ({"Origin": "http://evil.example"}, {"Origin": "null"}, {"Sec-Fetch-Site": "cross-site"},
+                    {"Origin": "http://localhost:3000", "Sec-Fetch-Site": "same-site"}):
+        assert client.post("/api/parse", files={"file": ("cv.docx", cv)}, headers=headers).status_code == 403
+    assert not (tmp_path / "uploads").exists()  # nothing read, nothing kept
+    assert TestClient(local_app(router), base_url="http://rebound.example").get("/").status_code == 400
+    ok = client.post("/api/parse", files={"file": ("my cv.Final.DOCX", cv)},
+                     headers={"Origin": "http://127.0.0.1:8765", "Sec-Fetch-Site": "same-origin"})
+    assert ok.status_code == 200
+    assert [p.name for p in (tmp_path / "uploads" / ok.json()["run"]).glob("original*")] == ["original.docx"]

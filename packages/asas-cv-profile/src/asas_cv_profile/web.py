@@ -5,7 +5,9 @@ extra); the host applies its own guards when it includes it, and ``asas-cv-profi
 serve`` mounts it on 127.0.0.1 for one person. Each upload is kept with its outputs
 under ``<out>/uploads/<run id>/``, named by the time and the file's hash (a file name
 often holds the person's name), so a run can be opened again and its files downloaded.
-One CV is read at a time: a gateway throttles short bursts.
+One CV is read at a time: a gateway throttles short bursts. An upload another site's page
+sends is refused (OWASP's CSRF Cheat Sheet: Fetch Metadata, then Origin), and
+:func:`local_app` answers only to the Host names of this machine, against DNS rebinding.
 """
 
 from __future__ import annotations
@@ -18,9 +20,20 @@ import time
 from datetime import date
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlsplit
 
+from asas_cv import DOCX_CONTENT_TYPE, PDF_CONTENT_TYPE, resolve_content_type
 from asas_cv import MAX_DOCUMENT_BYTES as MAX_BYTES
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import FileResponse, HTMLResponse
 
 from .build import ProfileBuilder
@@ -30,6 +43,29 @@ from .report import write_outputs
 STATIC = Path(__file__).resolve().parent / "static"
 FILES = {"text.txt": "text/plain; charset=utf-8", "profile.json": "application/json", "review.md": "text/markdown; charset=utf-8"}
 RUN_ID = re.compile(r"^\d{8}-\d{6}-[\w.-]{1,80}$")
+#: the upload is kept under the type it was read as, never the browser's file name
+SUFFIX = {PDF_CONTENT_TYPE: ".pdf", DOCX_CONTENT_TYPE: ".docx", "text/markdown": ".md"}
+LOCAL_HOSTS = ["127.0.0.1", "localhost"]
+
+
+def same_origin(request: Request) -> None:
+    """A browser says where a request comes from; one from another site's page is refused.
+    A client that sends neither header (the command line, curl) is not a browser."""
+    origin = request.headers.get("origin")
+    if request.headers.get("sec-fetch-site") in ("cross-site", "same-site") or (
+            origin is not None and urlsplit(origin).netloc != request.headers.get("host")):
+        raise HTTPException(403, "Upload from this page only.")
+
+
+def local_app(router: APIRouter) -> FastAPI:
+    """``router`` served for one person on this machine: no API docs, and a request whose Host
+    is not this machine's refused (Starlette's TrustedHostMiddleware)."""
+    from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=LOCAL_HOSTS)
+    app.include_router(router)
+    return app
 
 
 def upload_router(builder: ProfileBuilder, out: Path, *, packed: ProfileBuilder | None = None) -> APIRouter:
@@ -51,7 +87,7 @@ def upload_router(builder: ProfileBuilder, out: Path, *, packed: ProfileBuilder 
     def index() -> str:
         return (STATIC / "index.html").read_text(encoding="utf-8")
 
-    @router.post("/api/parse")
+    @router.post("/api/parse", dependencies=[Depends(same_origin)])
     async def parse(file: Annotated[UploadFile, File()], split: Annotated[bool, Form()] = False,
                     as_of: Annotated[str, Form()] = ""):
         data = await file.read(MAX_BYTES + 1)
@@ -73,7 +109,7 @@ def upload_router(builder: ProfileBuilder, out: Path, *, packed: ProfileBuilder 
             folder = runs_dir / run_id
             folder.mkdir(parents=True, mode=0o700)  # the CV and its profile: personal data, its owner's only
             runs_dir.chmod(0o700)
-            (folder / ("original" + Path(name).suffix.lower())).write_bytes(data)
+            (folder / ("original" + SUFFIX.get(resolve_content_type(name, None), ".txt"))).write_bytes(data)
             write_outputs(built, folder)
         return {"run": run_id, **built}
 
