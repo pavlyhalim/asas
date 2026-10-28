@@ -12,7 +12,7 @@ release fill your sections, and settles the rest in code.
 - **The model reads, code checks.** One call fills the profile, each entry citing
   line ranges. Every value is then checked against its lines: names and titles by
   fuzzy match after Arabic folding, dates in however the CV writes them (every
-  Arabic region's month names, Hijri dates in numbers in any order), numbers by what they say,
+  Arabic region's month names, Hijri dates by month name or in numbers in any order), numbers by what they say,
   phones as numbers. A match must also keep the value's numbers ("Level 4" is not
   "Level 5") and marks ("C++" is not "C#"), and one short or one Latin word is found
   as a word ("R" is not in "reports", "Java" is not "JavaScript"). A value the lines
@@ -171,7 +171,10 @@ holds personal data and is made readable by its owner only.
   never a set's, and a recheck of a build changes nothing.
 
 A date written `7/6/2011` counts as both 7 June and 6 July: the order differs from
-country to country, and the lines alone cannot say. A phone number with no country
+country to country, and the lines alone cannot say. For the same reason `Jan 19`
+counts as both 19 January and January 2019, unless a year follows it, and `رمضان 1436`
+with no day counts as both Gregorian months the Hijri month spans. A reference list's
+`2025 Sep` still reads as one date when the line breaks after the year. A phone number with no country
 code is read in the profile model's `region` (`region: AE`); with no region, only by
 its digits.
 

@@ -10,14 +10,18 @@ Release procedure and the historical tag mapping: [`RELEASING.md`](../../RELEASI
 First release.
 
 - **Profile model**: the host's sections and fields in YAML, with section kinds,
-  field roles and computed fields; checked on load.
+  field roles, computed fields and the region phone numbers are read in; checked on load.
 - **Lines**: `read_cv` with Document Intelligence for PDFs (`LayoutReader`, the
   `docintel` extra) and asas-cv for Word and text; refusals as `Refused` with a code.
 - **Calls**: `Asker` runs the package's profile-builder release on asas-agent, with a
   cap on calls at once and a tokens-a-minute bucket.
 - **Build**: `ProfileBuilder.build`, `recheck` (no model call) and `other_again`;
   values checked against their lines, follow-up calls only where the text shows a
-  need, twins folded, skills kept in the CV's words, durations and totals with
-  overlaps counted once, the lines no field took kept as other information.
+  need, twins folded (and flagged where dates alone chose the pair), skills kept in
+  the CV's words, durations and totals with overlaps counted once, the lines no field
+  took kept as other information. Dates are read in every Arabic region's month names,
+  as Hijri dates by month name or in numbers in any order, and both ways where day and
+  month, or day and two-digit year, could swap; a Hijri year copied as the date becomes
+  its Gregorian date.
 - **Command line** `asas-cv-profile` (`schema`, `one`, `run`, `recheck`, `other`,
   `serve`) and the upload page (`upload_router`, the `serve` extra).
