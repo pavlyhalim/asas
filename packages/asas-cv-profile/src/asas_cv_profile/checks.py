@@ -78,6 +78,12 @@ _EGYPT = {"يونيه": "يونيو", "يوليه": "يوليو"}
 _YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
 _TOKEN = re.compile(r"[^\W\d_]+\.?|\d+|[^\w\s]")  # words, numbers and marks, so "2010.Cyberjaya" gives up its year
 _AFTER = re.compile(r"[\s,]+([^\W\d_]{3,}\.?)")
+#: a month and a two-digit year with its apostrophe ("Jan '19"); dateparser picks the century
+_SHORT = re.compile(r"[^\W\d_]{3,}\.?\s*['’]\s?\d{2}(?!\d)")
+#: a month and two digits with no apostrophe ("Jan 19 - Mar 21"): a day or a year, and
+#: the lines alone cannot say which, so both count, as 7/6/2011 does; never with a year
+#: after it ("Jan 19, 2020" is a day)
+_BARE = re.compile(r"(?<![\w'’])([^\W\d_]{3,}\.?)\s(\d{2})(?!\d)(?![\s,]*(?:19|20)\d{2}(?!\d))")
 _ERA = re.compile(rf"(\d{{4}})\s*م(?![{ARABIC}])")  # 2019م: the Gregorian era mark
 _DAYS = r"\d{1,2}(?:\s?[-–]\s?\d{1,2})?"  # a day, or a range of days
 #: numbers only, the same in every language: 2019-05, 7/6/2011, 6/2011, 8-11/12 2011. A day and
@@ -186,6 +192,8 @@ def _months_in(text: str) -> frozenset[tuple[int, int | None]]:
     out |= {(int(y), int(m)) for rx in (_DMY, _DM_Y) for m, y in rx.findall(text) if 1 <= int(m) <= 12}
     out |= {(int(c), int(a)) for a, b, c in _THREE.findall(text) if _YEAR.fullmatch(c) and _real(int(c), int(a), int(b))}  # month first
     out |= _hijri(text)
+    out |= {got for phrase in _SHORT.findall(text) if (got := named_month(phrase))}
+    out |= {got for word, yy in _BARE.findall(text) if (got := named_month(f"{word} '{yy}"))}
     for line in text.splitlines():
         toks = list(_TOKEN.finditer(line))
         for i, tok in enumerate(toks):

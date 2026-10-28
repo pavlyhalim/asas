@@ -71,6 +71,17 @@ def test_a_day_and_month_that_could_be_either_count_both_ways():
     assert checks.date_found("2019-09", "24/9/2019") and not checks.date_found("2019-12", "24/9/2019")  # 24 is no month
 
 
+def test_a_two_digit_year_with_its_apostrophe():
+    assert checks.date_found("2019-01", "Analyst, Jan '19 - Mar '21") and checks.date_found("2021-03", "Jan '19 - Mar ’21")
+    assert checks.date_found("2005-09", "Sept. '05")
+
+
+def test_a_two_digit_year_with_no_apostrophe_counts_both_ways():
+    assert checks.date_found("2019-01", "Analyst, Jan 19 - Mar 21") and checks.date_found("2021-03", "Jan 19 - Mar 21")
+    assert not checks.date_found("2019-01", "Award, Jan 19, 2020")  # a year follows: 19 is the day
+    assert not checks.date_found("2012-01", "Room 12")  # no month
+
+
 def test_dates_in_reference_lists_and_glued_text():
     assert checks.date_found("2025-12", "J Example. 2025 Dec;47(3):377-400.")
     assert checks.date_found("2010-01", "Course, January 2010.Cyberjaya")
