@@ -281,6 +281,17 @@ SNIPPETS: dict[str, BootSnippet] = {
             "# asas_cv.settle_years_of_experience(sections)",
         ),
     ),
+    "cv_profile": BootSnippet(
+        imports=("import asas_agent", "import asas_cv_profile", "from pathlib import Path"),
+        setup=(
+            '# profile_model = asas_cv_profile.load_model(Path("profile.yaml"))  # TODO: your sections, kinds and roles\n'
+            "# asker = asas_cv_profile.Asker(asas_cv_profile.default_release(settings.model),\n"
+            "#     provider=asas_agent.gateway_provider(api_key=..., base_url=...))  # TODO: your gateway\n"
+            "# builder = asas_cv_profile.ProfileBuilder(profile_model, asker,\n"
+            "#     pdf=asas_cv_profile.LayoutReader(endpoint=..., key=...))  # TODO: your Document Intelligence\n"
+            "# built = await builder.build(raw, name)  # asas_cv_profile.Refused carries .code",
+        ),
+    ),
     "mcp": BootSnippet(
         imports=("import asas_mcp", "from starlette.routing import Route"),
         setup=(

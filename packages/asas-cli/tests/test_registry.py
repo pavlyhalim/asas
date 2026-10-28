@@ -20,6 +20,7 @@ EXPECTED_KEYS = {
     "llm",
     "agent",
     "cv",
+    "cv_profile",
 }
 
 
