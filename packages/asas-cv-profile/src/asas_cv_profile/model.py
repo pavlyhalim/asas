@@ -8,6 +8,7 @@ plays in it (a start date, an employer), which is all the code needs to know:
 .. code-block:: yaml
 
     name: Candidate profile
+    region: AE                      # where a phone number with no country code is from (optional)
     sections:
       - name: Roles                 # the host's name, unique
         group: Work experience      # where the profile nests it (optional)
@@ -22,7 +23,9 @@ plays in it (a start date, an employer), which is all the code needs to know:
           - {name: Seniority, type: enum, values: [Junior, Senior], infer: true}
           - {name: Months, type: number, computed: duration_months}
 
-Types: ``string``, ``url``, ``phone`` (compared as numbers), ``text`` (cited as lines
+Types: ``string``, ``url``, ``phone`` (compared as numbers, a number with no country
+code read in the model's ``region``, an ISO 3166 code; with none, only numbers with
+their country code are compared), ``text`` (cited as lines
 and copied from them by code), ``date`` (YYYY-MM or YYYY), ``year``, ``number``,
 ``boolean``, ``enum`` and ``multi_enum`` (from ``values``; without ``values``, the
 CV's own words). ``note`` is shown to the model beside the field. ``infer: true``
@@ -119,6 +122,7 @@ class Spec:
     role: str | None = None
     computed: str | None = None
     slug: str = ""
+    region: str | None = None  # a phone field's: the model's region
 
     @property
     def may_infer(self) -> bool:
@@ -172,6 +176,7 @@ class ProfileModel:
 
     name: str
     sections: list[Section]
+    region: str | None = None
     sha256: str = ""
     source: str = ""
 
@@ -214,6 +219,7 @@ def load_model(path: Path) -> ProfileModel:
 def parse_model(doc: Any, *, where: str = "profile model") -> ProfileModel:
     if not isinstance(doc, dict) or not isinstance(doc.get("sections"), list):
         raise ModelError(f"{where}: expected a mapping with a list of sections")
+    region = _region(doc.get("region"), where)
     sections: list[Section] = []
     seen: set[str] = set()
     for i, s in enumerate(doc["sections"], 1):
@@ -241,7 +247,23 @@ def parse_model(doc: Any, *, where: str = "profile model") -> ProfileModel:
             spec.slug = slug
         sections.append(Section(group=str(s.get("group") or ""), name=name, specs=specs, repeating=bool(s.get("list", False)),
                                 kind=kind, headings=tuple(str(h) for h in s.get("headings") or ())))
-    return ProfileModel(name=str(doc.get("name") or ""), sections=sections)
+    for sec in sections:
+        for spec in sec.specs:
+            if spec.type == "phone":
+                spec.region = region
+    return ProfileModel(name=str(doc.get("name") or ""), sections=sections, region=region)
+
+
+def _region(value: Any, where: str) -> str | None:
+    """The model's region, checked against the regions libphonenumber knows."""
+    if value is None:
+        return None
+    import phonenumbers
+
+    code = str(value).upper()
+    if code not in phonenumbers.SUPPORTED_REGIONS:
+        raise ModelError(f"{where}: unknown region {value!r}; an ISO 3166 code libphonenumber knows, such as AE")
+    return code
 
 
 def _spec(f: Any, section: str, kind: str | None, at: str) -> Spec:

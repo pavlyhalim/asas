@@ -256,6 +256,14 @@ def test_the_profile_model_is_checked_where_it_is_wrong():
         parse_model({"sections": [{"name": "A", "fields": [{"name": "B", "type": "number", "computed": "duration_months"}]}]})
     with pytest.raises(ModelError, match="headings need a kind"):
         parse_model({"sections": [{"name": "A", "headings": ["portfolio"], "fields": [{"name": "B"}]}]})
+    with pytest.raises(ModelError, match="unknown region 'UAE'"):
+        parse_model({"region": "UAE", "sections": [{"name": "A", "fields": [{"name": "B"}]}]})
+
+
+def test_the_phone_region_is_the_models():
+    m = parse_model({"region": "ae", "sections": [{"name": "A", "fields": [{"name": "Mobile", "type": "phone"}, {"name": "B"}]}]})
+    assert m.region == "AE" and [f.region for f in m.sections[0].specs] == ["AE", None]
+    assert parse_model({"sections": [{"name": "A", "fields": [{"name": "Mobile", "type": "phone"}]}]}).sections[0].specs[0].region is None
 
 
 def test_the_model_reads_the_fields_in_the_hosts_words(model):

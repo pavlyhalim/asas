@@ -285,19 +285,22 @@ def corrected_date(spec, value, cited: str) -> str | None:
     return (year_only(value, cited) if spec.type == "date" else None) or from_hijri(value, cited, month=spec.type == "date")
 
 
-def phone_found(value, cited: str) -> bool:
+def phone_found(value, cited: str, region: str | None = None) -> bool:
     """Each number the same number as one in the lines, compared by Google's libphonenumber
-    (the phonenumbers port), so "+971501234567" is found where the CV writes "050 123 4567".
-    A number with no country code is read as a UAE one."""
+    (the phonenumbers port), so "+971501234567" is found where the CV writes "050 123 4567"
+    in region AE. A number with no country code is read in ``region``; with none, it is
+    found only by its digits."""
     import phonenumbers
+
+    where = region or phonenumbers.UNKNOWN_REGION
 
     def national(text: str) -> str | None:
         try:
-            return str(phonenumbers.parse(text, "AE").national_number)
+            return str(phonenumbers.parse(text, where).national_number)
         except phonenumbers.NumberParseException:
             return None
 
-    in_lines = {str(m.number.national_number) for m in phonenumbers.PhoneNumberMatcher(cited.translate(DIGITS), "AE", leniency=phonenumbers.Leniency.POSSIBLE)}
+    in_lines = {str(m.number.national_number) for m in phonenumbers.PhoneNumberMatcher(cited.translate(DIGITS), where, leniency=phonenumbers.Leniency.POSSIBLE)}
     digits = re.sub(r"\D", "", cited.translate(DIGITS))
     for v in value if isinstance(value, list) else [value]:
         n = national(str(v))
@@ -312,7 +315,7 @@ def check_value(spec, value, cited: str, lines_ok: bool) -> str:
     if not lines_ok:
         return "bad_lines"
     if spec.type == "phone":
-        return "verified" if phone_found(value, cited) else "unverified"
+        return "verified" if phone_found(value, cited, spec.region) else "unverified"
     if spec.kind == "text":
         return "verified"  # copied from the lines by code, so it is the CV's text by construction
     if spec.type in ("date", "year"):

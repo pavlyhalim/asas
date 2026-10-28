@@ -85,6 +85,8 @@ sections:
       - {name: Months, type: number, computed: duration_months}
 ```
 
+- **Region**: `region`, an ISO 3166 code beside `name` (optional), is where a phone
+  number with no country code is from.
 - **Types**: `string`, `url`, `phone`, `text` (cited as lines, copied from them by
   code), `date`, `year`, `number`, `boolean`, `enum` and `multi_enum` (`values`,
   or the CV's own words without them). `note` is shown to the model; `infer: true`
@@ -170,7 +172,8 @@ holds personal data and is made readable by its owner only.
 
 A date written `7/6/2011` counts as both 7 June and 6 July: the order differs from
 country to country, and the lines alone cannot say. A phone number with no country
-code is read as a UAE number.
+code is read in the profile model's `region` (`region: AE`); with no region, only by
+its digits.
 
 ## Surface
 

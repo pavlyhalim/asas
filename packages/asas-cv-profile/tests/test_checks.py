@@ -96,11 +96,13 @@ def test_a_reference_date_broken_after_its_year():
 
 
 def test_an_empty_field_is_never_bad_lines_and_phones_match_by_number():
-    phone = spec("phone", note="E.164")
+    phone = spec("phone", note="E.164", region="AE")
     assert checks.check_value(phone, None, "", False) == "empty"
     assert checks.check_value(phone, "+971501234567", "Mobile: 050 123 4567", True) == "verified"
     assert checks.check_value(phone, ["+971501234567", "+201001234567"], "050-1234567 / 0020 100 123 4567", True) == "verified"
     assert checks.check_value(phone, "+971501234999", "Mobile: 050 123 4567", True) == "unverified"
+    assert checks.check_value(phone, "0501234567", "Mobile: +971 50 123 4567", True) == "verified"
+    assert checks.check_value(spec("phone"), "0501234567", "Mobile: +971 50 123 4567", True) == "unverified"  # no region: no country to read it in
 
 
 def test_a_month_the_cv_does_not_give_is_cut_to_the_year():
