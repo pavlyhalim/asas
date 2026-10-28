@@ -113,15 +113,19 @@ class LayoutReader:
         except ImportError:
             raise Refused("reader_not_configured", "Document Intelligence needs the docintel extra: pip install 'asas-cv-profile[docintel]'") from None
 
-        # azure-core's own retry policy: connection drops, 429 and 5xx, backing off
-        # 2, 4, 8 ... seconds, about two minutes in all. Past that the file is refused
-        # as reader_unavailable, and a later run reads it again.
-        with DocumentIntelligenceClient(self.endpoint, AzureKeyCredential(self.key), retry_total=6, retry_backoff_factor=2,
-                                        retry_backoff_max=60) as client:
+        # azure-core's own retry policy: connection drops, 429 and 5xx, six times each
+        # (retry_status, or 429 and 5xx get its default of three), waiting 4, 8, 16, 32
+        # and 60 seconds, about two minutes in all. Past that the file is refused as
+        # reader_unavailable, and a later run reads it again.
+        with DocumentIntelligenceClient(self.endpoint, AzureKeyCredential(self.key), retry_total=6, retry_status=6,
+                                        retry_backoff_factor=2, retry_backoff_max=60) as client:
             poller = None
             try:
+                # without a Retry-After from Azure the SDK waits 30 seconds between checks;
+                # Microsoft's limits page asks for no more than one every 2 seconds
                 poller = client.begin_analyze_document(self.model, body=data, pages=f"1-{self.max_pages}",
-                                                       output_content_format=DocumentContentFormat.MARKDOWN)
+                                                       output_content_format=DocumentContentFormat.MARKDOWN,
+                                                       polling_interval=2)
                 result = poller.result()
             except AzureError as exc:
                 raise Refused("reader_unavailable", f"Document Intelligence could not be reached or failed: {type(exc).__name__}.") from None

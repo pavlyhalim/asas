@@ -161,11 +161,12 @@ def test_document_intelligence_reads_capped_pages_then_deletes_the_cv_and_closes
 
     from asas_cv_profile import LayoutReader
 
-    calls = []
+    calls, retries = [], {}
 
     class FakeClient:
         def __init__(self, endpoint, credential, **kwargs):
             calls.append(("open", type(credential).__name__))
+            retries.update(kwargs)
 
         def __enter__(self):
             return self
@@ -173,8 +174,8 @@ def test_document_intelligence_reads_capped_pages_then_deletes_the_cv_and_closes
         def __exit__(self, *exc):
             calls.append(("close",))
 
-        def begin_analyze_document(self, model, body, pages, output_content_format):
-            calls.append(("analyze", model, pages))
+        def begin_analyze_document(self, model, body, pages, output_content_format, polling_interval=30):
+            calls.append(("analyze", model, pages, polling_interval))
             def result():
                 if fail_read:
                     raise ServiceResponseError("busy")
@@ -191,8 +192,9 @@ def test_document_intelligence_reads_capped_pages_then_deletes_the_cv_and_closes
     fail_delete = fail_read = False
     text = LayoutReader("https://example.cognitiveservices.azure.com", "k", max_pages=40).read(b"%PDF-1.7")
     assert text.lines == ["# Sara Example", "Senior Data Analyst"] and text.pages == 2
-    assert calls == [("open", "AzureKeyCredential"), ("analyze", "prebuilt-layout", "1-40"),
+    assert calls == [("open", "AzureKeyCredential"), ("analyze", "prebuilt-layout", "1-40", 2),
                      ("delete", "prebuilt-layout", "op-1"), ("close",)]
+    assert retries["retry_total"] == retries["retry_status"] == 6  # 429 and 5xx too, not azure-core's default of three
     calls.clear()
     fail_delete = True  # a failed delete keeps the read: Azure deletes it after 24 hours anyway
     assert LayoutReader("https://example.cognitiveservices.azure.com", "k").read(b"%PDF-1.7").pages == 2
