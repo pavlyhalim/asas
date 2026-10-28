@@ -66,6 +66,11 @@ def test_a_hijri_month_by_name():
     assert checks.from_hijri("1436", "رمضان 1436", month=True) is None  # June or July
 
 
+def test_a_day_and_month_that_could_be_either_count_both_ways():
+    assert checks.date_found("2011-06", "Joined 7/6/2011") and checks.date_found("2011-07", "Joined 7/6/2011")
+    assert checks.date_found("2019-09", "24/9/2019") and not checks.date_found("2019-12", "24/9/2019")  # 24 is no month
+
+
 def test_dates_in_reference_lists_and_glued_text():
     assert checks.date_found("2025-12", "J Example. 2025 Dec;47(3):377-400.")
     assert checks.date_found("2010-01", "Course, January 2010.Cyberjaya")

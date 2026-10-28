@@ -167,8 +167,9 @@ holds personal data and is made readable by its owner only.
 - **The same input gives the same output.** Headings are taken in the table's order,
   never a set's, and a recheck of a build changes nothing.
 
-Two defaults are the UAE's: a date written `7/6/2011` is read day first, and a phone
-number with no country code is read as a UAE number.
+A date written `7/6/2011` counts as both 7 June and 6 July: the order differs from
+country to country, and the lines alone cannot say. A phone number with no country
+code is read as a UAE number.
 
 ## Surface
 

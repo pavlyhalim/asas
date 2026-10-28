@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from datetime import date
 from functools import lru_cache
 
 from rapidfuzz import fuzz, process
@@ -71,7 +72,7 @@ def found(value: str, haystack: str) -> bool:
 #: CVs the search over whole cited passages missed 48 of the 50 dates it flagged ("June 2025",
 #: "7/6/2011", "يناير 2020", "2019م"), all of them in the lines.
 LOCALES = {"latin": (["en"],), "arabic": (["ar"], ["ar-SY"], ["ar-DZ"], ["ar-MA"])}
-_SETTINGS = {"PREFER_DAY_OF_MONTH": "first", "REQUIRE_PARTS": ["year", "month"], "DATE_ORDER": "DMY"}
+_SETTINGS = {"PREFER_DAY_OF_MONTH": "first", "REQUIRE_PARTS": ["year", "month"]}
 #: Egypt's spellings of June and July, which CLDR does not carry
 _EGYPT = {"يونيه": "يونيو", "يوليه": "يوليو"}
 _YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
@@ -79,7 +80,9 @@ _TOKEN = re.compile(r"[^\W\d_]+\.?|\d+|[^\w\s]")  # words, numbers and marks, so
 _AFTER = re.compile(r"[\s,]+([^\W\d_]{3,}\.?)")
 _ERA = re.compile(rf"(\d{{4}})\s*م(?![{ARABIC}])")  # 2019م: the Gregorian era mark
 _DAYS = r"\d{1,2}(?:\s?[-–]\s?\d{1,2})?"  # a day, or a range of days
-#: numbers only, the same in every language: 2019-05, 7/6/2011 (day first, as the UAE writes), 6/2011, 8-11/12 2011
+#: numbers only, the same in every language: 2019-05, 7/6/2011, 6/2011, 8-11/12 2011. A day and
+#: a month that could each be the other (7/6/2011) count both ways: the lines alone cannot say
+#: which the CV meant, and the order differs from country to country.
 _YM = re.compile(r"(?<!\d)((?:19|20)\d{2})[-/.](\d{1,2})(?!\d)")
 _DMY = re.compile(rf"(?<![\d/.\-])(?:{_DAYS}\s?[/.\-])?(\d{{1,2}})[/.\-]\s?((?:19|20)\d{{2}})(?!\d)")
 _DM_Y = re.compile(rf"(?<![\d/.\-]){_DAYS}\s?[/.\-](\d{{1,2}})\s+((?:19|20)\d{{2}})(?!\d)")
@@ -120,6 +123,14 @@ def named_month(phrase: str) -> tuple[int, int] | None:
         if when:
             return when.year, when.month
     return None
+
+
+def _real(y: int, m: int, d: int) -> bool:
+    try:
+        date(y, m, d)
+    except ValueError:
+        return False
+    return True
 
 
 def _hijri_dates(text: str) -> set[tuple[int, int, int]]:
@@ -173,6 +184,7 @@ def _months_in(text: str) -> frozenset[tuple[int, int | None]]:
     out: set[tuple[int, int | None]] = {(int(y), None) for y in _YEAR.findall(text)}
     out |= {(int(y), int(m)) for y, m in _YM.findall(text) if 1 <= int(m) <= 12}
     out |= {(int(y), int(m)) for rx in (_DMY, _DM_Y) for m, y in rx.findall(text) if 1 <= int(m) <= 12}
+    out |= {(int(c), int(a)) for a, b, c in _THREE.findall(text) if _YEAR.fullmatch(c) and _real(int(c), int(a), int(b))}  # month first
     out |= _hijri(text)
     for line in text.splitlines():
         toks = list(_TOKEN.finditer(line))
