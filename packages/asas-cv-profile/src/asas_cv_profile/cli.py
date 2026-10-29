@@ -34,7 +34,7 @@ from typing import Any
 
 from . import __version__
 from .build import ProfileBuilder
-from .calls import AGENT, AGENTS, Asker, default_release
+from .calls import AGENT, AGENTS, EFFORTS, Asker, default_release
 from .lines import LayoutReader, Refused
 from .model import BUDGET, ModelError, load_model, one_group, pack
 from .report import summary, write_outputs
@@ -67,7 +67,10 @@ def _release(model: str, args) -> dict:
     the agents directory. A store's release is checked to be for ``model`` (fetch_release)."""
     store_arg = args.store
     if not store_arg:
-        return default_release(model, args.agents)
+        return default_release(model, args.agents, args.effort)
+    if args.effort:
+        raise SystemExit("asas-cv-profile: --effort is for a release built from --agents; a store's release is pinned, "
+                         "so publish one per effort and pick it with --label")
     from asas_agent import FileStore, fetch_release
 
     if store_arg.startswith("file:"):
@@ -236,6 +239,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="personal facts kept too, in a block of their own marked restricted (keep it out of model inputs)")
     calls = argparse.ArgumentParser(add_help=False)
     calls.add_argument("--agents", type=Path, default=AGENTS, help="the agents directory (default: the package's profile-builder)")
+    calls.add_argument("--effort", choices=EFFORTS, help="the reasoning effort, in place of the agents folder's "
+                       "(one prompt for several models: a small model at none); not with --store")
     calls.add_argument("--chat-completions", action="store_true", help="the gateway serves chat completions only, not the Responses API")
     calls.add_argument("--timeout", type=float, default=240, help="seconds per model call")
     calls.add_argument("--retries", type=int, default=5, help="client retries of a throttled or failed call")

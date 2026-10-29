@@ -115,7 +115,7 @@ def test_the_release_comes_from_a_store_by_label_and_must_match_the_model(tmp_pa
     built = default_release("gpt-x")
     asyncio.run(store.publish(AGENT, built))
     asyncio.run(store.promote(AGENT, built["id"], "production"))
-    args = SimpleNamespace(store=f"file:{tmp_path / 'releases'}", label="production", agents=None)
+    args = SimpleNamespace(store=f"file:{tmp_path / 'releases'}", label="production", agents=None, effort=None)
     assert _release("gpt-x", args)["id"] == built["id"]
     with pytest.raises(ValueError):
         _release("another-model", args)
@@ -135,3 +135,24 @@ def test_recheck_keeps_personal_facts_and_every_line_when_asked(model, tmp_path,
     n = len(built["text"]["lines"])
     assert any(b.get("restricted") and b["lines"] == [n] for b in blocks)
     assert any(n - 1 in b["lines"] and not b.get("restricted") for b in blocks)
+
+
+def test_effort_replaces_the_folders_and_the_release_is_what_a_folder_with_it_would_build(tmp_path):
+    """--effort: one prompt for two models. The release equals, id and all, the one a copy of
+    the folder with that effort would build; a store's pinned release takes no --effort."""
+    import shutil
+    from types import SimpleNamespace
+
+    from asas_cv_profile.calls import AGENT, AGENTS, default_release
+    from asas_cv_profile.cli import _release
+
+    copy = tmp_path / "agents"
+    shutil.copytree(AGENTS, copy)
+    yaml_path = copy / AGENT / "agent.yaml"
+    yaml_path.write_text(yaml_path.read_text().replace("effort: low", "effort: none"))
+    assert default_release("small-model", AGENTS, "none") == default_release("small-model", copy)
+    assert default_release("big-model", AGENTS, "low") == default_release("big-model", AGENTS)
+    with pytest.raises(ValueError):
+        default_release("big-model", AGENTS, "maximal")
+    with pytest.raises(SystemExit, match="--effort"):
+        _release("big-model", SimpleNamespace(store="file:x", label="production", agents=None, effort="none"))

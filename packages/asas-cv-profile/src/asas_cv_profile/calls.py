@@ -40,13 +40,27 @@ AGENT = "profile-builder"
 ANSWER_ROOM = 8_000
 
 
-def default_release(model: str, agents: Path = AGENTS) -> dict:
-    """The profile builder's release for ``model``, from the files under ``agents``
-    (the package's own by default). A host that keeps releases in a store reads one
-    with :func:`asas_agent.fetch_release` instead."""
-    from asas_agent import build_release
+#: the reasoning efforts OpenAI's reasoning models take (which ones a model accepts varies by model)
+EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
 
-    return build_release(agents, model, agent=AGENT)
+
+def default_release(model: str, agents: Path = AGENTS, effort: str | None = None) -> dict:
+    """The profile builder's release for ``model``, from the files under ``agents``
+    (the package's own by default). ``effort`` replaces the folder's reasoning effort, so
+    one prompt serves a model that wants another (a small model at ``none``); the id is
+    the hash of the release as it will run. A host that keeps releases in a store reads
+    one with :func:`asas_agent.fetch_release` instead, one release per effort."""
+    from asas_agent import build_release, release_id
+
+    release = build_release(agents, model, agent=AGENT)
+    if effort is None:
+        return release
+    if effort not in EFFORTS:
+        raise ValueError(f"effort is one of {', '.join(EFFORTS)}, not {effort!r}")
+    settings = dict(release.get("settings") or {})
+    settings["model"] = {**(settings.get("model") or {}), "reasoning": {**((settings.get("model") or {}).get("reasoning") or {}), "effort": effort}}
+    release = {k: v for k, v in release.items() if k != "id"} | {"settings": settings}
+    return release | {"id": release_id(release)}
 
 
 class _Plain:
