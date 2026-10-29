@@ -214,9 +214,25 @@ def assemble(results: list[CallResult], groups: list[Group], text: Lines, notes:
                     fresh = fold(node[sub.name], fresh, sub)
                 node[sub.name] += fresh
                 node[sub.name].sort(key=lambda e: e["lines"][:1] or [0])
+            elif not sub.repeating and sub.name in node and by_name[res.group].second_look:
+                fill(node[sub.name], built[0])
             else:
                 node[sub.name] = built if sub.repeating else built[0]
     return profile
+
+
+def fill(held: dict, other: dict) -> None:
+    """A follow-up's answer for a one-entry section the first answer already holds: it fills
+    the fields the first left empty, and replaces a value its lines did not bear out with one
+    they do; the rest stays."""
+    took = False
+    for label, cell in other["fields"].items():
+        mine = held["fields"].get(label)
+        if mine is None or (mine.get("check") == "unverified" and cell.get("check") == "verified"):
+            held["fields"][label] = cell
+            took = True
+    if took:
+        held["lines"] = sorted(set(held["lines"]) | set(other["lines"]))
 
 
 def recheck_values(profile: dict, model_sections: list[Section], text: Lines) -> None:

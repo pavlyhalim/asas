@@ -18,6 +18,7 @@ waits until the minute has room, the prompt counted with tiktoken.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from collections.abc import Mapping
@@ -99,31 +100,49 @@ class Asker:
     event loop of its first call, as the provider's client is."""
 
     def __init__(self, release: Mapping[str, Any], *, provider: Any = None, run_model: Any = None, parallel: int = 3,
-                 tokens_per_minute: int = 0):
+                 tokens_per_minute: int = 0, requests_per_minute: int = 0):
         if (provider is None) == (run_model is None):
             raise ValueError("Asker needs a provider or a run_model, not both")
         self.release = {**release, "skills": {}}
         self.provider, self.run_model = provider, run_model
-        self.parallel, self.tokens_per_minute = parallel, tokens_per_minute
+        self.parallel, self.tokens_per_minute, self.requests_per_minute = parallel, tokens_per_minute, requests_per_minute
         self._loop: asyncio.AbstractEventLoop | None = None
         self._gate: asyncio.Semaphore | None = None
         self._limiter: Any = None
+        self._requests: Any = None
+        self._fixed: dict[Any, int] = {}  # tokens of the instructions and of each output type's schema, counted once
 
     @property
     def model(self) -> str:
         return self.release["model"]
 
-    async def _spend(self, text: str) -> None:
-        """Wait until the key's minute has room for this call: the prompt counted with the
-        model's tokenizer, plus room for the answer; a tenth kept back for the estimate."""
-        if not self.tokens_per_minute:
+    def need(self, text: str, output_type: Any = None) -> int:
+        """The tokens a call counts against the key's minute: the whole request (the release's
+        instructions, the output schema and the message) plus room for the answer. OpenAI's
+        rate-limit guide counts the request's input, not the message alone; its parallel
+        processor counts each request before sending it (openai-cookbook api_request_parallel_processor.py)."""
+        if "instructions" not in self._fixed:
+            self._fixed["instructions"] = _tokens(str(self.release.get("instructions") or ""))
+        if output_type is not None and output_type not in self._fixed:
+            self._fixed[output_type] = _tokens(json.dumps(output_type.model_json_schema()))
+        return self._fixed["instructions"] + self._fixed.get(output_type, 0) + _tokens(text) + ANSWER_ROOM
+
+    async def _spend(self, text: str, output_type: Any = None) -> None:
+        """Wait until the key's minute has room for this call, in requests and in tokens (two
+        leaky buckets, as OpenAI's parallel processor keeps); a tenth kept back for the estimate."""
+        if not (self.requests_per_minute or self.tokens_per_minute):
             return
         from aiolimiter import AsyncLimiter
 
+        if self.requests_per_minute:
+            if self._requests is None:
+                self._requests = AsyncLimiter(max(1, self.requests_per_minute * 0.9), 60)
+            await self._requests.acquire(1)
+        if not self.tokens_per_minute:
+            return
         if self._limiter is None:
             self._limiter = AsyncLimiter(self.tokens_per_minute * 0.9, 60)
-        need = _tokens(text) + 2_000 + ANSWER_ROOM
-        await self._limiter.acquire(min(need, self.tokens_per_minute * 0.9))
+        await self._limiter.acquire(min(self.need(text, output_type), self.tokens_per_minute * 0.9))
 
     async def __call__(self, name: str, text: str, output_type: type[BaseModel], what: str) -> CallResult:
         from asas_agent import run_agent
@@ -131,14 +150,14 @@ class Asker:
 
         loop = asyncio.get_running_loop()
         if self._loop is not loop:  # asyncio's gate belongs to the loop it first waits in: a host's second loop gets its own
-            self._loop, self._gate, self._limiter = loop, asyncio.Semaphore(self.parallel), None
+            self._loop, self._gate, self._limiter, self._requests = loop, asyncio.Semaphore(self.parallel), None, None
         snapshot = {"release": self.release, "tools": [], "history": [{"role": "user", "content": text}]}
         out = CallResult(name)
         start = time.perf_counter()
         log.info("%s: sent (%s)", name, what)
         try:
             async with self._gate:  # type: ignore[union-attr]
-                await self._spend(text)
+                await self._spend(text, output_type)
                 result = await run_agent(snapshot, _no_tools, _no_tools, renderer=_Plain(), provider=self.provider,
                                          run_model=self.run_model, output_type=output_type)
             out.output, out.usage = result["output"], {k: v for k, v in result["usage"].items() if k != "calls"}

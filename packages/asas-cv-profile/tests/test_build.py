@@ -3,6 +3,7 @@ what the answers become."""
 
 from datetime import date
 
+
 from conftest import Scripted, blank, docx, lines, run
 
 from asas_cv_profile import ProfileBuilder, followups, review
@@ -197,3 +198,119 @@ def test_the_host_finish_fills_its_own_fields(model):
     exp = built["profile"]["Work experience"]["Experience"]["fields"]
     assert exp["Total experience (months)"]["value"] == 18 and exp["Government experience (months)"]["value"] == 18
     assert seen == [AS_OF] and "host note" in built["text"]["warnings"]
+
+
+def test_a_capped_build_makes_two_calls_and_says_where_a_half_read_list_is(model):
+    """followups="one": a list the main call read only in part goes to the one follow-up,
+    with its uncited lines named, beside the sections asked again; no third call."""
+    titles = ["Soil salinity in coastal farms", "Road sensors for traffic", "Water quality in desalination", "Heat maps of urban parks"]
+    text = (["Sara Example", "PUBLICATIONS"] + [f"Example A. {t}. Sci Rep (2022)." for t in titles]
+            + ["EXPERIENCE", "Lecturer, Example University, 2019-2023", "LANGUAGES", "Arabic"])
+
+    def answer(call, s):
+        if s.name == "Publication":
+            pairs = ((0, 3), (1, 4)) if call == "ProfileAll" else ((2, 5), (3, 6))
+            return [{**blank(s), "title": titles[i], "lines": [[n, n]]} for i, n in pairs]
+        if s.name == "Professional" and call == "ProfileAll":
+            return [{**blank(s), "job_title": "Lecturer", "lines": [[8, 8]]}]
+        if s.name == "Level" and call == "ProfileAll":
+            return {**blank(s), "seniority": "Senior", "lines": [[8, 8]]}
+        if s.name == "Languages" and call == "ProfileAll":
+            return [{**blank(s), "language": "Arabic", "lines": [[10, 10]]}]
+        return None
+
+    scripted = Scripted(model, answer)
+    built = run(ProfileBuilder(model, scripted, followups="one").build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
+    assert [name for name, _ in scripted.sent] == ["ProfileAll", "Followup"]
+    message = scripted.sent[1][1]
+    assert "Publication: L005-L006" in message and "L003 " not in message
+    assert len(built["profile"]["Work experience"]["Publication"]) == 4
+
+
+def test_a_capped_build_with_nothing_left_makes_one_call(model):
+    text = ["Sara Example", "EXPERIENCE", "Lecturer, Example University, 2019-2023"]
+
+    def answer(call, s):
+        if s.name == "Professional":
+            return [{**blank(s), "job_title": "Lecturer", "lines": [[3, 3]]}]
+        if s.name == "Level":
+            return {**blank(s), "seniority": "Senior", "lines": [[3, 3]]}
+        return None
+
+    scripted = Scripted(model, answer)
+    run(ProfileBuilder(model, scripted, followups="one").build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
+    assert [name for name, _ in scripted.sent] == ["ProfileAll"]
+
+
+def test_a_follow_up_fills_a_one_entry_section_and_keeps_what_the_first_answer_holds():
+    """answers.fill: an empty field is filled and an unverified value gives way to a verified
+    one; a verified value stays, and the entry's lines grow by the follow-up's."""
+    from asas_cv_profile.answers import fill
+
+    held = {"lines": [3], "fields": {"Seniority": {"value": "Senior", "check": "verified"},
+                                     "Years": {"value": "9", "check": "unverified"}}}
+    other = {"lines": [3, 4], "fields": {"Seniority": {"value": "Junior", "check": "verified"},
+                                         "Years": {"value": "4", "check": "verified"},
+                                         "Function": {"value": "Teaching", "check": "verified"}}}
+    fill(held, other)
+    assert {k: v["value"] for k, v in held["fields"].items()} == {"Seniority": "Senior", "Years": "4", "Function": "Teaching"}
+    assert held["lines"] == [3, 4]
+
+
+def test_keep_all_keeps_personal_details_and_contact_lines_but_not_personal_facts(model):
+    """keep_all: a line under a personal-details heading and a second link no field took go to
+    other information; a personal fact stays out."""
+    text = ["Sara Example", "EXPERIENCE", "Lecturer, Example University, 2019-2023", "PERSONAL DETAILS",
+            "Visa status: residence permit", "Driving licence: light vehicle", "Marital status: married",
+            "Portfolio: https://example.com/work"]
+
+    def answer(call, s):
+        if s.name == "Professional":
+            return [{**blank(s), "job_title": "Lecturer", "lines": [[3, 3]]}]
+        if s.name == "Level":
+            return {**blank(s), "seniority": "Senior", "lines": [[3, 3]]}
+        return None
+
+    kept = lambda b: {n for e in b["profile"].get("Identity", {}).get("Other information", []) for n in e["lines"]}  # noqa: E731
+    plain = run(ProfileBuilder(model, Scripted(model, answer)).build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
+    every = run(ProfileBuilder(model, Scripted(model, answer), keep_all=True).build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
+    assert not {5, 6, 8} & kept(plain)
+    assert {5, 6, 8} <= kept(every) and 7 not in kept(every)
+
+
+def test_keep_personal_keeps_personal_facts_apart_and_marked_restricted(model):
+    text = ["Sara Example", "EXPERIENCE", "Lecturer, Example University, 2019-2023", "PERSONAL DETAILS",
+            "Visa status: residence permit", "Marital status: married"]
+
+    def answer(call, s):
+        if s.name == "Professional":
+            return [{**blank(s), "job_title": "Lecturer", "lines": [[3, 3]]}]
+        if s.name == "Level":
+            return {**blank(s), "seniority": "Senior", "lines": [[3, 3]]}
+        return None
+
+    scripted = Scripted(model, answer)
+    built = run(ProfileBuilder(model, scripted, keep_all=True, keep_personal=True)
+                .build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
+    blocks = built["profile"]["Identity"]["Other information"]
+    restricted = [b for b in blocks if b.get("restricted")]
+    assert len(restricted) == 1 and restricted[0]["lines"] == [6]
+    assert restricted[0]["fields"]["Kind"]["value"] == "Personal details"  # by its heading, not by the model
+    listed = next(msg for name, msg in scripted.sent if name == "OtherKinds").rsplit("\n\n", 1)[-1]
+    assert "L006" not in listed and "restricted" not in listed  # never offered to the naming call
+    assert all(6 not in b["lines"] for b in blocks if not b.get("restricted"))
+    assert any(5 in b["lines"] for b in blocks if not b.get("restricted"))
+
+
+def test_a_call_counts_its_whole_request_against_the_minute(model):
+    """The key's minute counts the request's input: the instructions and the output schema as well
+    as the message (OpenAI's rate-limit guide), so the asker's count holds all three."""
+    from asas_cv_profile import Asker
+    from asas_cv_profile.calls import ANSWER_ROOM, _tokens
+
+    release = {"model": "scripted", "instructions": "Read the CV. " * 200, "settings": {}}
+    asker = Asker(release, run_model=object(), tokens_per_minute=1_000_000, requests_per_minute=600)
+    group = one_group(model.asked)
+    text = "L001 Sara Example"
+    assert asker.need(text, group.model) > _tokens(release["instructions"]) + _tokens(text) + ANSWER_ROOM
+    assert asker.need(text) == _tokens(release["instructions"]) + _tokens(text) + ANSWER_ROOM

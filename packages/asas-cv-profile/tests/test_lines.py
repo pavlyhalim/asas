@@ -176,12 +176,12 @@ def test_document_intelligence_reads_capped_pages_then_deletes_the_cv_and_closes
 
         def begin_analyze_document(self, model, body, pages, output_content_format, polling_interval=30):
             calls.append(("analyze", model, pages, polling_interval))
-            def result():
+            def result(timeout=None):  # azure-core's LROPoller.result takes a timeout
                 if fail_read:
                     raise ServiceResponseError("busy")
                 return SimpleNamespace(content="# Sara Example\n\nSenior Data Analyst", pages=[1, 2])
 
-            return SimpleNamespace(result=result, details={"operation_id": "op-1"})
+            return SimpleNamespace(result=result, done=lambda: True, details={"operation_id": "op-1"})
 
         def delete_analyze_result(self, model, result_id):
             calls.append(("delete", model, result_id))
@@ -209,3 +209,62 @@ def test_document_intelligence_reads_capped_pages_then_deletes_the_cv_and_closes
     with pytest.raises(Refused) as exc:
         LayoutReader("https://example.cognitiveservices.azure.com", "k").read(b"%PDF-1.7")
     assert exc.value.code == "reader_unavailable" and calls[-2:] == [("delete", "prebuilt-layout", "op-1"), ("close",)]
+
+
+def test_page_header_text_stays_and_a_running_header_goes():
+    """Document Intelligence puts what it takes for a page header in a comment: a role's
+    employer and dates at the top of page 2 must stay, the name on every page must not."""
+    from asas_cv_profile.lines import layout_markdown
+
+    md = ('<!-- PageHeader="Sara Example, CV" -->\n# Experience\nLecturer\n<!-- PageBreak -->\n'
+          '<!-- PageHeader="Sara Example, CV" -->\n<!-- PageHeader="Example Bank &amp; Co" -->\n'
+          '<!-- PageHeader="2010 - 2019" -->\nLed audits\n<!-- PageNumber="2" -->')
+    out = [line for line in layout_markdown(md).splitlines() if line.strip()]
+    assert out == ["# Experience", "Lecturer", "Example Bank & Co", "2010 - 2019", "Led audits"]
+
+
+def test_a_read_that_does_not_finish_in_time_is_refused_as_unavailable(monkeypatch):
+    """A stuck Document Intelligence operation must not hold a CV for ever: past read_timeout
+    the file is refused as reader_unavailable, and the result is still deleted."""
+    import sys
+    import types
+
+    from asas_cv_profile.lines import LayoutReader, Refused
+
+    deleted = []
+
+    class Poller:
+        details = {"operation_id": "op-1"}
+
+        def result(self, timeout=None):
+            assert timeout == 0.01
+            return None
+
+        def done(self):
+            return False
+
+    class Client:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def begin_analyze_document(self, *a, **k):
+            return Poller()
+
+        def delete_analyze_result(self, model, op):
+            deleted.append(op)
+
+    di = types.ModuleType("azure.ai.documentintelligence")
+    di.DocumentIntelligenceClient = Client
+    models = types.ModuleType("azure.ai.documentintelligence.models")
+    models.DocumentContentFormat = types.SimpleNamespace(MARKDOWN="markdown")
+    monkeypatch.setitem(sys.modules, "azure.ai.documentintelligence", di)
+    monkeypatch.setitem(sys.modules, "azure.ai.documentintelligence.models", models)
+    with pytest.raises(Refused) as caught:
+        LayoutReader("https://example.cognitiveservices.azure.com", "key", read_timeout=0.01).read(b"%PDF-1.4")
+    assert caught.value.code == "reader_unavailable" and deleted == ["op-1"]

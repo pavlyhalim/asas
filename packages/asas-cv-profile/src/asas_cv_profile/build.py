@@ -23,17 +23,22 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from collections import Counter
+from dataclasses import replace
 from datetime import date
 
 from . import __version__, answers, calls, experience, followups, skills
 from .headings import Headings, numbered_items
 from .lines import Lines, read_cv
 from .merged import flag_merged
-from .model import Group, ProfileModel, one_group, pack
+from .model import Group, ProfileModel, group, one_group, pack
 from .other import OtherLines
 from .seams import Ask, CallResult, Finish, PdfReader
 from .shapes import Built
 from .twins import merge_twins
+
+#: content lines under a list's heading that no entry cites, past which a capped build
+#: sends that list to its one follow-up (a long list the main call read only in part)
+LIST_LEFT = 2
 
 
 def _call_row(r: CallResult, groups: dict[str, Group]) -> dict:
@@ -53,17 +58,24 @@ class ProfileBuilder:
     """Builds profiles to one profile model (a facade over the stages). ``ask`` makes the
     model calls (:class:`~asas_cv_profile.calls.Asker`, or a test's stand-in); ``pdf``
     reads PDFs; ``finish`` is the host's last step; ``one_call=False`` packs the
-    sections into calls under :data:`~asas_cv_profile.model.BUDGET` properties each."""
+    sections into calls under :data:`~asas_cv_profile.model.BUDGET` properties each.
+    ``followups="one"`` caps a build at two calls: the main call reads the whole CV (no
+    long list gets calls of its own), then one call carries every gap at once (the
+    sections asked again and the second look), cited lines the text lacks are not asked
+    again, and other information takes its kind from its heading instead of a call."""
 
     def __init__(self, model: ProfileModel, ask: Ask | None, *, pdf: PdfReader | None = None, finish: Finish | None = None,
-                 one_call: bool = True):
+                 one_call: bool = True, followups: str = "each", keep_all: bool = False, keep_personal: bool = False):
+        if followups not in ("each", "one"):
+            raise ValueError(f"followups is 'each' or 'one', not {followups!r}")
         self.model, self.ask, self.pdf, self.finish, self.one_call = model, ask, pdf, finish, one_call
+        self.followups = followups
         extra: dict[str, list[str]] = {}
         for s in model.sections:
             if s.kind and s.headings:
                 extra.setdefault(s.kind, []).extend(s.headings)
         self.headings = Headings(extra)
-        self.other = OtherLines(model, self.headings)
+        self.other = OtherLines(model, self.headings, keep_all=keep_all, keep_personal=keep_personal)
 
     @property
     def _ask(self) -> Ask:
@@ -82,24 +94,31 @@ class ProfileBuilder:
         if text is None:  # the reader waits on a service: off the event loop, so other requests go on
             text = await asyncio.to_thread(read_cv, data, filename, pdf=self.pdf, headings=self.headings)
         numbered = text.numbered()
-        own = followups.own_calls(self.model, self.headings, text)
+        capped = self.followups == "one"
+        own = [] if capped else followups.own_calls(self.model, self.headings, text)
         taken = {s.name for g, _ in own for s in g.subs}
         rest = [s for s in self.model.asked if s.name not in taken]
         groups = [one_group(rest)] if self.one_call else pack(rest)
         results = await self._fill([(g, numbered) for g in groups] + [(g, text.part(nums)) for g, nums in own])
         groups += [g for g, _ in own]
-        again = [] if any(r.error for r in results) else followups.asked_again(self.model, self.headings, results, groups, text, taken)
-        if again:
+        failed = any(r.error for r in results)
+        again = [] if failed else followups.asked_again(self.model, self.headings, results, groups, text, taken)
+        if again and not capped:
             results += await self._fill([(g, text.part(nums)) for g, nums in again])
             groups += [g for g, _ in again]
-        look = [] if any(r.error for r in results) else followups.second_look(
-            self.model, self.other.uncited(answers.assemble(results, groups, text, []), text), text)
-        if look:
+        # the answers so far, assembled once: the second look and a capped build's gaps both read them
+        draft = None if failed else answers.assemble(results, groups, text, [])
+        look = [] if draft is None else followups.second_look(self.model, self.other.uncited(draft, text), text)
+        if capped:
+            if (asked := await self._one_followup(draft, text, again, look)) is not None:
+                results.append(asked[0])
+                groups.append(asked[1])
+        elif look:
             results += await self._fill([(g, text.part(nums)) for g, nums in look])
             groups += [g for g, _ in look]
         bad = answers.bad_refs(results, groups, text)
         fixed = 0
-        if bad:
+        if bad and not capped:
             res = await calls.fix_lines(self._ask, numbered, bad)
             fixed = answers.apply_fixes(results, groups, res.output, bad)
             results.append(res)
@@ -110,7 +129,9 @@ class ProfileBuilder:
         warnings += self._short_lists(profile, text) + host_warnings
         other = self.other.put(profile, text)
         repeats: list[dict] = []
-        if self.other.usable and self.other.held(profile) and not any(r.error for r in results):  # a failed run is read again later
+        if capped:
+            other = self.other.kinds_by_heading(profile)
+        elif self.other.usable and self.other.to_name(profile) and not any(r.error for r in results):  # a failed run is read again later
             res, repeats = await self.other.name(profile, text, self._ask)
             results.append(res)
             other = self.other.counts(profile)
@@ -143,6 +164,53 @@ class ProfileBuilder:
             "as_of": today.isoformat(),
             "built_on": date.today().isoformat(),
         }
+
+    def _gaps(self, draft: dict, text: Lines, again: list) -> dict[str, list[int]]:
+        """Section name to the lines to read again: the sections asked again, and each list
+        whose heading still has LIST_LEFT or more content lines no entry in ``draft`` cites
+        (a long list the main call read only in part)."""
+        where: dict[str, list[int]] = {}
+        for g, nums in again:
+            for s in g.subs:
+                where.setdefault(s.name, []).extend(nums)
+        cited = self.other.cited(draft)
+        for kind, nums in self.headings.find(text.lines, other_ends=False).items():
+            subs = [s for s in self.model.asked if s.kind == kind and s.trait("own_call")]
+            left = [n for n in nums if n not in cited and self.headings.heading(text.line(n) or "") is None]
+            if subs and len(left) >= LIST_LEFT:
+                for s in subs:
+                    where.setdefault(s.name, []).extend(left)
+        return where
+
+    def _followup_message(self, merged: Group, where: dict[str, list[int]], loose: list[int], text: Lines) -> str:
+        """The follow-up's lines, and where in them each section's items are."""
+        nums = sorted({n for ns in where.values() for n in ns} | set(loose))
+        width = max(3, len(str(len(text.lines))))
+        msg = calls.fill_message(text.part(nums), merged)
+        if where:
+            msg += " Where each one's items are: " + "; ".join(
+                f"{name}: {calls.spans_label(sorted(set(ns)), width)}" for name, ns in where.items()) + "."
+        if loose:
+            msg += (f" Lines {calls.spans_label(loose, width)} were taken by no entry yet: put each item there in the "
+                    "section it belongs to, and leave out what is not an item of these sections.")
+        return msg
+
+    async def _one_followup(self, draft: dict | None, text: Lines, again: list, look: list) -> tuple[CallResult, Group] | None:
+        """The one follow-up of a capped build: the sections asked again, the half-read lists
+        and the second look, in one call that says where each section's lines are. None when
+        a call failed (``draft`` None: the run is read again later) or there is no gap."""
+        if draft is None:
+            return None
+        where = self._gaps(draft, text, again)
+        loose = sorted({n for _, nums in look for n in nums})
+        named = {s.name: s for s in self.model.asked if s.name in where} | {s.name: s for g, _ in look for s in g.subs}
+        if not named:
+            return None
+        order = {s.name: i for i, s in enumerate(self.model.asked)}
+        # folded into items the list holds only for loose lines: a list's own uncited lines hold new items
+        merged = replace(group("Followup", sorted(named.values(), key=lambda s: order[s.name])), second_look=bool(loose))
+        msg = self._followup_message(merged, where, loose, text)
+        return await self._ask(merged.name, msg, merged.model, f"{merged.properties} properties"), merged
 
     def _settle(self, profile: dict, text: Lines, today: date) -> tuple[int, dict[str, int], list[str]]:
         """What code settles once the answers are in, in one order for a build and a

@@ -133,9 +133,15 @@ a Word file only when it unpacks to under 100 MB in under 1,000 parts.
 
 Options: `--finish module:function`, `--agents DIR` (your own profile-builder
 folder), `--chat-completions` (a gateway without the Responses API),
-`--tokens-per-minute`, `--parallel`, `--retries`, `--timeout`, `--split` (calls
-under 90 properties each, Azure's strict-schema cap being 100), `--as-of`
-(the day "present" counts to), `--force`. Each CV leaves `text.txt`,
+`--tokens-per-minute` and `--requests-per-minute` (the key's limits), `--parallel`
+(calls at once), `--cvs-at-once` (`run`: CVs read together, sharing those limits),
+`--retries`, `--timeout`, `--split` (calls under 90 properties each, Azure's
+strict-schema cap being 100), `--followups one` (two calls at most, below),
+`--store file:DIR|langfuse` with `--label` (the release from a release store, as
+asas-agent hosts read theirs; it must be for `OPENAI_MODEL`), `--keep-all` and
+`--keep-personal` (other information, below), `--as-of` (the day "present"
+counts to), `--force`. In `run`, a CV that fails outside its model calls is noted in
+the summary, the others go on, and the command exits 1; the next run reads it again. Each CV leaves `text.txt`,
 `profile.json` (everything, the raw answers included) and `review.md` (what needs
 a look first, then every field with its value, check and lines). The output folder
 holds personal data and is made readable by its owner only.
@@ -166,11 +172,27 @@ holds personal data and is made readable by its owner only.
 - **A bilingual CV's second skills list is not read twice.** An Arabic list splits as
   an English one does (on ، and ؛), but a skills line in a script the model read none of
   the skills in is the other copy and is left to other information.
+- **Two calls at most, if you want them.** `followups="one"` reads the whole CV in
+  one call, then sends every gap (sections asked again, a list read only in part,
+  lines no entry took) in one follow-up that names where each section's lines are;
+  other information takes its kind from its heading instead of a third call.
 - **Personal facts stay out.** Lines stating marital status, birth date, religion
-  and the like are left out of every copied text and of other information.
+  and the like are left out of every copied text and of other information. With
+  `keep_personal=True` they are kept in one block of their own marked
+  `"restricted": true`, named by its heading and never sent to a naming call; keep it
+  out of your own model inputs too. `keep_all=True` keeps every other line no field
+  took (contact and reference lines among them), so nothing of the CV is lost.
+- **A page's edges are read.** Document Intelligence puts a page's header and footer
+  in comments; a text that repeats across pages is a running header and goes, any
+  other (an employer and dates at the top of page 2) stays as a line.
+- **A part the reader missed is flagged.** The PDF's own text layer (pdfminer) is
+  compared with the read text: a missing year, or 1% of its words (3 at least),
+  gives a warning. A read that has not finished in `read_timeout` seconds (300) is
+  refused as `reader_unavailable`, for a later run to read again.
 - **Rate and concurrency are two limits.** A semaphore caps calls at once; a leaky
-  bucket (aiolimiter) keeps tokens a minute under the key's limit, prompts counted
-  with tiktoken; the OpenAI client retries throttled and failed calls. Both limits
+  bucket (aiolimiter) keeps tokens a minute under the key's limit, each request
+  counted whole (instructions, output schema and message, with tiktoken), and a
+  second keeps requests a minute under it, a tenth of each kept back; the OpenAI client retries throttled and failed calls. Both limits
   belong to the event loop they run in, and a host's second loop gets its own.
   tiktoken fetches its vocabulary once: a host with no way out seeds
   `TIKTOKEN_CACHE_DIR` in its image, or tokens are estimated from the text's length.
@@ -191,7 +213,8 @@ its digits.
 `KINDS`, `ROLES`, `COMPUTED`, `TYPES`, `BUDGET`; `read_cv`, `Lines`,
 `LayoutReader`, `Refused`, `CODES` (asas-cv's codes, then this package's);
 `Asker`, `default_release`; `ProfileBuilder` (`build`, `recheck`, `other_again`;
-`one_call=False` packs the sections into calls under `BUDGET`); the seams `Ask`
+`one_call=False` packs the sections into calls under `BUDGET`, `followups="one"`
+caps a build at two calls, `keep_all` and `keep_personal` widen other information); the seams `Ask`
 (with its `release`), `CallResult`, `PdfReader`, `Finish`; the output shapes `Built`,
 `Entry`, `Cell`; `write_outputs`, `review`, `summary`; `upload_router` (the `serve`
 extra; a refusal is a 422 whose `detail` holds its `code` and `message`).

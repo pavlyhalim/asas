@@ -20,9 +20,11 @@ letters holds no CV. Each refusal is a :class:`Refused` with a stable code.
 
 from __future__ import annotations
 
+import html
 import io
 import logging
 import re
+from collections import Counter
 import unicodedata
 import zipfile
 from dataclasses import dataclass, field
@@ -53,6 +55,16 @@ LONG_LINE = 500
 #: of 1,500 real PDF CVs the median ran 3 pages, 1 in 20 over 13 and 8 over 30. Past
 #: MAX_PAGES a file is turned away before anything reads it; past CHECK_PAGES it must look like a CV
 MAX_PAGES, CHECK_PAGES = 40, 10
+#: Document Intelligence's page header and footer comments: <!-- PageHeader="..." -->
+_PAGE_EDGE = re.compile(r'<!--\s*Page(Header|Footer)="(.*?)"\s*-->', re.DOTALL)
+#: Latin words of three letters or more and four-digit numbers (years), the marks the text
+#: layer and the reader's text are compared on; Arabic in a PDF's text layer is often in
+#: presentation forms or reversed, so it is left out of the comparison
+_LAYER_WORD = re.compile(r"[a-z]{3,}|\d{4}")
+#: a read text lacking any year the text layer has, or this share of its words (and at
+#: least LAYER_MIN of them), gets a warning: one lost line of a two-page CV, an employer
+#: and its dates, was 5 of 315 words
+LAYER_MISSING, LAYER_MIN = 0.01, 3
 #: a Word file is a zip: of 1,273 real Word CVs the largest unpacked to 26 MB in 46 parts.
 #: zipfile stops each part at its stated size, so the stated sizes bound what reading takes
 MAX_UNPACKED, MAX_PARTS = 100 * 2**20, 1000
@@ -108,6 +120,10 @@ class LayoutReader:
     # https://learn.microsoft.com/azure/ai-services/document-intelligence/quickstarts/get-started-sdks-rest-api
     credential: Any = field(default=None, repr=False)
     max_pages: int = MAX_PAGES
+    # seconds a read may take before the file is refused as reader_unavailable (a later run reads it
+    # again): azure-core's poller waits with no limit, and one stuck operation once held a CV for 11
+    # minutes (29 Oct 2026); its polling runs in a thread, so result(timeout=...) returns on time
+    read_timeout: float = 300
 
     def __post_init__(self) -> None:
         if (self.key is None) == (self.credential is None):
@@ -136,7 +152,9 @@ class LayoutReader:
                 poller = client.begin_analyze_document(self.model, body=data, pages=f"1-{self.max_pages}",
                                                        output_content_format=DocumentContentFormat.MARKDOWN,
                                                        polling_interval=2)
-                result = poller.result()
+                result = poller.result(timeout=self.read_timeout)
+                if not poller.done():
+                    raise Refused("reader_unavailable", f"Document Intelligence did not finish within {self.read_timeout:.0f} seconds.")
             except AzureError as exc:
                 raise Refused("reader_unavailable", f"Document Intelligence could not be reached or failed: {type(exc).__name__}.") from None
             finally:  # read or failed, once Azure holds the file it is deleted now
@@ -187,6 +205,11 @@ def read_cv(data: bytes, filename: str, *, pdf: PdfReader | None = None, heading
         if pdf is None:
             raise Refused("reader_not_configured", "No PDF reader is configured (Document Intelligence).")
         text = pdf.read(data)
+        missing, total = layer_missing(data, text.lines)
+        years = sorted(w for w in missing if w.isdigit())
+        if years or len(missing) >= max(LAYER_MIN, LAYER_MISSING * total):
+            text.warnings.append(f"The read text lacks {len(missing)} of the {total} words the PDF's own text layer has"
+                                 f"{', years among them' if years else ''}: a part of the CV may not have been read.")
     else:
         text = _asas_cv(data, filename)
     letters = sum(ch.isalpha() for line in text.lines for ch in line)
@@ -203,6 +226,21 @@ def read_cv(data: bytes, filename: str, *, pdf: PdfReader | None = None, heading
         text.warnings.append(f"{long} of {len(text.lines)} lines run over {LONG_LINE} characters (a page read as one line): "
                              "a value checked against such a line proves little.")
     return text
+
+
+def layer_missing(data: bytes, lines: list[str]) -> tuple[set[str], int]:
+    """The words in the PDF's own text layer (pdfminer) the read lines lack, and how many
+    words the layer has: (empty, 0) for a scan with no text layer, or a PDF pdfminer cannot
+    read. A check, never a reader: the layer's reading order is not trusted."""
+    from pdfminer.high_level import extract_text
+
+    try:
+        layer = extract_text(io.BytesIO(data), maxpages=MAX_PAGES)
+    except Exception:  # noqa: BLE001 a layer pdfminer cannot read is no evidence either way
+        return set(), 0
+    want = set(_LAYER_WORD.findall(layer.casefold()))
+    have = set(_LAYER_WORD.findall("\n".join(lines).casefold()))
+    return want - have, len(want)
 
 
 def _check_contents(data: bytes, content_type: str) -> None:
@@ -260,5 +298,17 @@ def layout_markdown(content: str) -> str:
     from markdownify import markdownify
 
     content = re.sub(r"<table>.*?</table>", lambda m: "\n" + markdownify(m.group(0)).strip() + "\n", content, flags=re.DOTALL)
+    # A page header or footer comes as a comment holding its text. A text repeated on
+    # several pages is a running header (the name, a page title) and goes; any other is
+    # CV text the layout put at a page's edge (a role's employer and dates at the top of
+    # page 2) and stays as a line of its own.
+    said = Counter(html.unescape(m.group(2)).strip() for m in _PAGE_EDGE.finditer(content))
+    running = {t for t, k in said.items() if k > 1}
+
+    def edge(m: re.Match) -> str:
+        t = html.unescape(m.group(2)).strip()
+        return "" if not t or t in running else f"\n{t}\n"
+
+    content = _PAGE_EDGE.sub(edge, content)
     content = re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL)
     return re.sub(r"</?figure[^>]*>|</?figcaption>", "", content)

@@ -98,3 +98,40 @@ def test_the_upload_page_refuses_other_sites_and_other_hosts(model, tmp_path):
                      headers={"Origin": "http://127.0.0.1:8765", "Sec-Fetch-Site": "same-origin"})
     assert ok.status_code == 200
     assert [p.name for p in (tmp_path / "uploads" / ok.json()["run"]).glob("original*")] == ["original.docx"]
+
+
+def test_the_release_comes_from_a_store_by_label_and_must_match_the_model(tmp_path):
+    """--store/--label: the profile builder's release is read from a release store, as asas-agent
+    hosts read their agents; a label that points at another model's release is refused."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from asas_agent import FileStore
+
+    from asas_cv_profile.calls import AGENT, default_release
+    from asas_cv_profile.cli import _release
+
+    store = FileStore(tmp_path / "releases")
+    built = default_release("gpt-x")
+    asyncio.run(store.publish(AGENT, built))
+    asyncio.run(store.promote(AGENT, built["id"], "production"))
+    args = SimpleNamespace(store=f"file:{tmp_path / 'releases'}", label="production", agents=None)
+    assert _release("gpt-x", args)["id"] == built["id"]
+    with pytest.raises(ValueError):
+        _release("another-model", args)
+
+
+def test_recheck_keeps_personal_facts_and_every_line_when_asked(model, tmp_path, capsys):
+    """recheck rebuilds other information without a model call: with --keep-all and
+    --keep-personal it keeps what a build with them kept, so a saved run can be brought up to them."""
+    built = built_profile(model)
+    built["text"]["lines"] += ["PERSONAL DETAILS", "Visa status: residence permit", "Marital status: married"]
+    run_dir = tmp_path / "runs"
+    write_outputs(built, run_dir / "cv")
+    assert cli.main(["recheck", "--profile-model", str(FIXTURES / "profile.yaml"), "--out", str(run_dir),
+                     "--keep-all", "--keep-personal"]) == 0
+    again = json.loads((run_dir / "cv" / "profile.json").read_text())
+    blocks = again["profile"]["Identity"]["Other information"]
+    n = len(built["text"]["lines"])
+    assert any(b.get("restricted") and b["lines"] == [n] for b in blocks)
+    assert any(n - 1 in b["lines"] and not b.get("restricted") for b in blocks)

@@ -49,13 +49,30 @@ class Target:
     kind: Spec | None
 
 
+#: the topic of the block of personal facts a keep_personal build keeps apart
+RESTRICTED_TOPIC = "Personal details (restricted)"
+#: a block's kind from its heading, for a build that makes no call to name it: the first
+#: of the host's kinds whose words the heading holds, else Other
+HEADING_KINDS = {"Achievements": ("achievement", "award", "honour", "honor"), "References": ("reference", "referee"),
+                 "Availability": ("availability", "notice"), "Personal details": ("personal",),
+                 "Interests": ("interest", "hobbies", "hobby"), "Declaration": ("declaration",),
+                 "Summary": ("summary", "profile", "objective", "about"), "Research and grants": ("research", "grant"),
+                 "Teaching": ("teaching", "taught"), "Training": ("training", "workshop"), "Skills": ("skill", "competenc")}
+
+
 class OtherLines:
     """The lines no field took, for one profile model. ``target`` is None when the model
     has no section of kind ``other_information`` with a topic and a details field: the
     lines are then still counted, and kept nowhere."""
 
-    def __init__(self, model: ProfileModel, headings: Headings):
+    def __init__(self, model: ProfileModel, headings: Headings, keep_all: bool = False, keep_personal: bool = False):
         self.headings = headings
+        # keep_personal: personal facts (marital status, religion, birth date and the like) are kept too,
+        # in a block of their own marked restricted, for the host to keep out of every model input
+        self.keep_personal = keep_personal
+        # keep_all: lines under a personal-details, contact or references heading and lines with an email,
+        # link or phone are kept too when no field took them; only personal facts stay out
+        self.keep_all = keep_all
         self.section: Section | None = model.first("other_information")
         s = self.section
         topic, details = (s.role("topic"), s.role("details")) if s else (None, None)
@@ -105,6 +122,7 @@ class OtherLines:
         cited = self.cited(profile) | skip
         keep_out_words = tuple(checks.norm(w) for w in KEEP_OUT)
         found: dict[int, tuple[str, list[int]]] = {}
+        restricted: list[int] = []
         at, topic, keep_out = 0, "Before any heading", False
         for n, line in enumerate(text.lines, 1):
             h = self.headings.heading(line)
@@ -114,13 +132,29 @@ class OtherLines:
                 at, topic = n, title(line)
                 keep_out = not h and any(has(checks.norm(topic), w) for w in keep_out_words)
                 continue
-            if n in cited or keep_out or sum(ch.isalpha() for ch in line) < 3 or personal(line) or CONTACT.search(line):
+            if n in cited or sum(ch.isalpha() for ch in line) < 3:
+                continue
+            if personal(line):
+                if self.keep_personal:
+                    restricted.append(n)
+                continue
+            if not self.keep_all and (keep_out or CONTACT.search(line)):
                 continue
             found.setdefault(at, (topic, []))[1].append(n)
-        return [{"lines": nums, "fields": {
+        out = [{"lines": nums, "fields": {
                     t.topic.name: {"kind": "copied", "check": "unplaced", "value": topic},
                     t.details.name: {"kind": "text", "lines": nums, "check": "unplaced", "value": "\n".join(text.line(n) or "" for n in nums)}}}
-                for _, (topic, nums) in sorted(found.items())]
+               for _, (topic, nums) in sorted(found.items())]
+        if restricted:
+            out.append({"lines": restricted, "restricted": True, "fields": {
+                t.topic.name: {"kind": "copied", "check": "unplaced", "value": RESTRICTED_TOPIC},
+                t.details.name: {"kind": "text", "lines": restricted, "check": "unplaced",
+                                 "value": "\n".join(text.line(n) or "" for n in restricted)}}})
+        return out
+
+    def to_name(self, profile: dict) -> bool:
+        """Whether a block is left for the naming call: personal facts kept apart are not."""
+        return any(not e.get("restricted") for e in self.held(profile))
 
     def held(self, profile: dict) -> list[dict]:
         s = self.section
@@ -129,6 +163,24 @@ class OtherLines:
     def counts(self, profile: dict) -> dict:
         other = self.held(profile)
         return {"lines": sum(len(e["lines"]) for e in other), "topics": len(other)}
+
+    def kinds_by_heading(self, profile: dict) -> dict:
+        """Each block's kind from its heading, with no call: no block is found to repeat
+        others, so a bilingual CV's second copy stays. How many lines and topics it holds."""
+        self._kind_by_heading(self.held(profile))
+        return self.counts(profile)
+
+    def _kind_by_heading(self, blocks: list[dict]) -> None:
+        t = self.target
+        if t is None or t.kind is None:
+            return
+        values = set(t.kind.values or calls.OTHER_KINDS)
+        for e in blocks:
+            n = checks.norm((e["fields"].get(t.topic.name) or {}).get("value") or "")
+            kind = next((k for k, words in HEADING_KINDS.items() if k in values and any(w in n for w in words)),
+                        "Other" if "Other" in values else None)
+            if kind:
+                e["fields"][t.kind.name] = {"kind": "normalised", "check": "unplaced", "value": kind}
 
     def put(self, profile: dict, text: Lines, skip: frozenset[int] = frozenset()) -> dict:
         """Other information made again from the profile as it stands, in place; how many
@@ -144,6 +196,7 @@ class OtherLines:
             for e in other:
                 if e["lines"][0] in kinds:
                     e["fields"][kind_f.name] = kinds[e["lines"][0]]
+        self._kind_by_heading([e for e in other if e.get("restricted")])
         if other:
             profile.setdefault(s.group, {})[s.name] = other
         return self.counts(profile)
@@ -159,11 +212,14 @@ class OtherLines:
         if (t := self.target) is None:
             raise ValueError("the profile model has no other information section to name")
         s, topic_f, kind_f = t.section, t.topic, t.kind
-        blocks = self.held(profile)
+        # personal facts kept apart (named by their heading in put) are not offered as a repeat to drop
+        held_all = self.held(profile)
+        restricted = [e for e in held_all if e.get("restricted")]
+        blocks = [e for e in held_all if not e.get("restricted")]
         kinds = tuple(kind_f.values) if kind_f and kind_f.values else calls.OTHER_KINDS
         res = await calls.kind_other(ask, [(e["fields"][topic_f.name]["value"], e["lines"]) for e in blocks], text.numbered(), kinds)
         cited = self.cited(profile)
-        covered = set(range(1, len(text.lines) + 1)) - {n for e in blocks for n in e["lines"]}
+        covered = set(range(1, len(text.lines) + 1)) - {n for e in held_all for n in e["lines"]}
         held = marks(" \n".join(text.line(n) or "" for n in sorted(cited)))
         gone, dropped = set(), []
         said = {b.block: b for b in getattr(res.output, "blocks", None) or [] if 1 <= b.block <= len(blocks)}
@@ -183,7 +239,7 @@ class OtherLines:
             else:
                 covered |= set(e["lines"])
         if gone:
-            kept = [e for i, e in enumerate(blocks, 1) if i not in gone]
+            kept = [e for i, e in enumerate(blocks, 1) if i not in gone] + restricted
             if kept:
                 profile[s.group][s.name] = kept
             else:

@@ -113,6 +113,9 @@ def summary(rows: Sequence[Mapping[str, Any]]) -> str:
         if "refused" in b:
             out.append(f"| {b['file']} | refused: {b['refused']} | | | | | | | |")
             continue
+        if "failed" in b:  # an error outside the model calls; a later run reads it again
+            out.append(f"| {b['file']} | failed: {b['failed']} | | | | | | | |")
+            continue
         c = Counter(b["checks"])
         total.update(c)
         failed = sum(1 for x in b["calls"] if x["error"])
