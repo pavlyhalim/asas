@@ -247,8 +247,8 @@ def main(argv: list[str] | None = None) -> int:
     calls.add_argument("--parallel", type=int, default=3, help="model calls at once across a CV")
     calls.add_argument("--tokens-per-minute", type=int, default=0, help="the key's limit; 0 for none")
     calls.add_argument("--split", action="store_true", help=f"calls under {BUDGET} properties each instead of one")
-    calls.add_argument("--followups", choices=("each", "one"), default="each",
-                       help="each: a call per gap (default); one: every gap in one follow-up, two calls at most")
+    calls.add_argument("--followups", choices=("one", "each"), default="one",
+                       help="one: every gap in one follow-up, two calls at most (default); each: a call per gap")
     calls.add_argument("--requests-per-minute", type=int, default=0, help="the key's requests a minute (0: no limit)")
     calls.add_argument("--store", help="read the profile builder's release from a store: file:<directory> or langfuse")
     calls.add_argument("--label", default="production", help="with --store: the label of the release to run")

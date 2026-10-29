@@ -138,7 +138,8 @@ folder), `--chat-completions` (a gateway without the Responses API),
 `--effort none|minimal|low|medium|high|xhigh` (the reasoning effort in place of the
 agents folder's, so one prompt serves a large model at `low` and a small one at `none`;
 not with `--store`, whose releases are pinned), `--retries`, `--timeout`, `--split`
-(calls under 90 properties each, Azure's strict-schema cap being 100), `--followups one` (two calls at most, below),
+(calls under 90 properties each, Azure's strict-schema cap being 100), `--followups each` (a call per gap instead of two calls at
+most, below),
 `--store file:DIR|langfuse` with `--label` (the release from a release store, as
 asas-agent hosts read theirs; it must be for `OPENAI_MODEL`), `--keep-all` and
 `--keep-personal` (other information, below), `--as-of` (the day "present"
@@ -174,10 +175,13 @@ holds personal data and is made readable by its owner only.
 - **A bilingual CV's second skills list is not read twice.** An Arabic list splits as
   an English one does (on ، and ؛), but a skills line in a script the model read none of
   the skills in is the other copy and is left to other information.
-- **Two calls at most, if you want them.** `followups="one"` reads the whole CV in
-  one call, then sends every gap (sections asked again, a list read only in part,
-  lines no entry took) in one follow-up that names where each section's lines are;
-  other information takes its kind from its heading instead of a third call.
+- **Two calls at most.** By default (`followups="one"`) the whole CV is read in one
+  call, then every gap (sections asked again, a list read only in part, lines no entry
+  took) goes in one follow-up that names where each section's lines are; other
+  information takes its kind from its heading instead of a third call.
+  `followups="each"` gives each gap its own call instead. On 28 test CVs, with the same
+  prompt, the cap found 76% of the items against 81% for a call per gap, at 1.4 calls a
+  CV on average against 3.4 (13 at most) and 29% less cost.
 - **Personal facts stay out.** Lines stating marital status, birth date, religion
   and the like are left out of every copied text and of other information. With
   `keep_personal=True` they are kept in one block of their own marked
@@ -215,8 +219,8 @@ its digits.
 `KINDS`, `ROLES`, `COMPUTED`, `TYPES`, `BUDGET`; `read_cv`, `Lines`,
 `LayoutReader`, `Refused`, `CODES` (asas-cv's codes, then this package's);
 `Asker`, `default_release`; `ProfileBuilder` (`build`, `recheck`, `other_again`;
-`one_call=False` packs the sections into calls under `BUDGET`, `followups="one"`
-caps a build at two calls, `keep_all` and `keep_personal` widen other information); the seams `Ask`
+`one_call=False` packs the sections into calls under `BUDGET`, `followups="each"`
+gives each gap a call instead of the default two-call cap, `keep_all` and `keep_personal` widen other information); the seams `Ask`
 (with its `release`), `CallResult`, `PdfReader`, `Finish`; the output shapes `Built`,
 `Entry`, `Cell`; `write_outputs`, `review`, `summary`; `upload_router` (the `serve`
 extra; a refusal is a 422 whose `detail` holds its `code` and `message`).

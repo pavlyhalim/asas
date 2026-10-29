@@ -49,7 +49,7 @@ def test_a_run_cites_checks_re_asks_bad_lines_and_flags(model):
         return [{"ref": r, "lines": [] if "[2]" in r else [[2, 2]]} for r in refs]
 
     model_ = Scripted(model, answer, fixes=fixes)
-    built = run(ProfileBuilder(model, model_).build(cv, "cv.docx", as_of=AS_OF))
+    built = run(ProfileBuilder(model, model_, followups="each").build(cv, "cv.docx", as_of=AS_OF))
     assert asked == ["ProfileAll.work_experience_professional[2]", "ProfileAll.work_experience_professional[3]"]
     assert built["fixes"]["lines_fixed"] == 2 and built["release"] == "0" * 64
     roles = built["profile"]["Work experience"]["Professional"]
@@ -84,7 +84,7 @@ def test_a_section_left_empty_is_asked_again_with_its_own_lines(model):
         return None
 
     scripted = Scripted(model, answer)
-    built = run(ProfileBuilder(model, scripted).build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
+    built = run(ProfileBuilder(model, scripted, followups="each").build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
     assert built["fixes"]["sections_asked_again"] == ["Publication", "Level"]  # roles but no level: the level asked too
     assert built["fixes"]["sections_found_again"] == ["Publication"]
     name, message = scripted.sent[1]
@@ -101,7 +101,7 @@ def test_a_long_cv_sends_long_lists_to_calls_of_their_own(model, monkeypatch):
     text = (["Sara Example", "PUBLICATIONS"] + [f"Example A. Study number {chr(65 + i)} of things. Sci Rep (2022)." for i in range(4)]
             + ["EXPERIENCE", "Lecturer, Example University", "Research assistant, Example Lab", "LANGUAGES", "Arabic"])
     scripted = Scripted(model)
-    built = run(ProfileBuilder(model, scripted).build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
+    built = run(ProfileBuilder(model, scripted, followups="each").build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
     assert built["fixes"]["sections_own_call"] == ["Publication"]
     first = sorted((name, message.split("---\n")[0].split("\n\n")[1][:5]) for name, message in scripted.sent[:2])
     assert first == [("OwnPublication", "L002 "), ("ProfileAll", "L001 ")]  # roles stay in the main call
@@ -122,7 +122,7 @@ def test_lines_no_entry_took_get_a_second_look_with_the_list_sections(model):
         return None
 
     scripted = Scripted(model, answer)
-    built = run(ProfileBuilder(model, scripted).build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
+    built = run(ProfileBuilder(model, scripted, followups="each").build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
     assert built["fixes"]["second_look_calls"] >= 1 and built["fixes"]["second_look_found"] == 10
     projects = built["profile"]["Work experience"]["Project"]
     assert len(projects) == 10 and all(p["fields"]["Name"]["check"] == "verified" for p in projects)
@@ -142,7 +142,7 @@ def test_a_second_look_folds_in_what_the_first_answer_already_holds(model):
             return [{**blank(s), "degree_title": "PhD in Civil Engineering", "institution": "Example University", "lines": at}]
         return None
 
-    built = run(ProfileBuilder(model, Scripted(model, answer)).build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
+    built = run(ProfileBuilder(model, Scripted(model, answer), followups="each").build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
     assert built["fixes"]["second_look_found"] >= 1
     degrees = built["profile"]["Education"]["Degree"]
     assert len(degrees) == 1 and {4, 5, 6} <= set(degrees[0]["lines"])
@@ -228,6 +228,7 @@ def test_a_capped_build_makes_two_calls_and_says_where_a_half_read_list_is(model
 
 
 def test_a_capped_build_with_nothing_left_makes_one_call(model):
+    """The default build is capped: nothing left over, no second call."""
     text = ["Sara Example", "EXPERIENCE", "Lecturer, Example University, 2019-2023"]
 
     def answer(call, s):
@@ -238,7 +239,7 @@ def test_a_capped_build_with_nothing_left_makes_one_call(model):
         return None
 
     scripted = Scripted(model, answer)
-    run(ProfileBuilder(model, scripted, followups="one").build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
+    run(ProfileBuilder(model, scripted).build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
     assert [name for name, _ in scripted.sent] == ["ProfileAll"]
 
 
@@ -290,7 +291,7 @@ def test_keep_personal_keeps_personal_facts_apart_and_marked_restricted(model):
         return None
 
     scripted = Scripted(model, answer)
-    built = run(ProfileBuilder(model, scripted, keep_all=True, keep_personal=True)
+    built = run(ProfileBuilder(model, scripted, keep_all=True, keep_personal=True, followups="each")
                 .build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
     blocks = built["profile"]["Identity"]["Other information"]
     restricted = [b for b in blocks if b.get("restricted")]

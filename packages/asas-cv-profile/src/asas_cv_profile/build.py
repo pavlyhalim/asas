@@ -59,13 +59,15 @@ class ProfileBuilder:
     model calls (:class:`~asas_cv_profile.calls.Asker`, or a test's stand-in); ``pdf``
     reads PDFs; ``finish`` is the host's last step; ``one_call=False`` packs the
     sections into calls under :data:`~asas_cv_profile.model.BUDGET` properties each.
-    ``followups="one"`` caps a build at two calls: the main call reads the whole CV (no
-    long list gets calls of its own), then one call carries every gap at once (the
-    sections asked again and the second look), cited lines the text lacks are not asked
-    again, and other information takes its kind from its heading instead of a call."""
+    ``followups="one"`` (the default) caps a build at two calls: the main call reads the
+    whole CV (no long list gets calls of its own), then one call carries every gap at once
+    (the sections asked again and the second look), cited lines the text lacks are not
+    asked again, and other information takes its kind from its heading instead of a call.
+    ``followups="each"`` gives each gap a call of its own: a few more items on long CVs,
+    up to about eleven calls."""
 
     def __init__(self, model: ProfileModel, ask: Ask | None, *, pdf: PdfReader | None = None, finish: Finish | None = None,
-                 one_call: bool = True, followups: str = "each", keep_all: bool = False, keep_personal: bool = False):
+                 one_call: bool = True, followups: str = "one", keep_all: bool = False, keep_personal: bool = False):
         if followups not in ("each", "one"):
             raise ValueError(f"followups is 'each' or 'one', not {followups!r}")
         self.model, self.ask, self.pdf, self.finish, self.one_call = model, ask, pdf, finish, one_call
