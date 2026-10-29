@@ -34,7 +34,8 @@ First release.
   marked restricted, never sent to a model call by the package.
 - **Command line** `asas-cv-profile` (`schema`, `one`, `run`, `recheck`, `other`,
   `serve`; `run --cvs-at-once` reads CVs together under the same limits, and a release
-  can come from a release store with `--store` and `--label`) and the upload page (`upload_router`, the `serve` extra).
+  can come from a release store with `--store` and `--label`, or from an agents folder at
+  another reasoning effort with `--effort`) and the upload page (`upload_router`, the `serve` extra).
 - **Files and the page, by OWASP's File Upload and CSRF cheat sheets**: a file whose
   first bytes are not the type its name claims is refused unread, and so is a Word
   file that unpacks past 100 MB or 1,000 parts; the page refuses an upload from

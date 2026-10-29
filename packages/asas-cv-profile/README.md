@@ -135,8 +135,10 @@ Options: `--finish module:function`, `--agents DIR` (your own profile-builder
 folder), `--chat-completions` (a gateway without the Responses API),
 `--tokens-per-minute` and `--requests-per-minute` (the key's limits), `--parallel`
 (calls at once), `--cvs-at-once` (`run`: CVs read together, sharing those limits),
-`--retries`, `--timeout`, `--split` (calls under 90 properties each, Azure's
-strict-schema cap being 100), `--followups one` (two calls at most, below),
+`--effort none|minimal|low|medium|high|xhigh` (the reasoning effort in place of the
+agents folder's, so one prompt serves a large model at `low` and a small one at `none`;
+not with `--store`, whose releases are pinned), `--retries`, `--timeout`, `--split`
+(calls under 90 properties each, Azure's strict-schema cap being 100), `--followups one` (two calls at most, below),
 `--store file:DIR|langfuse` with `--label` (the release from a release store, as
 asas-agent hosts read theirs; it must be for `OPENAI_MODEL`), `--keep-all` and
 `--keep-personal` (other information, below), `--as-of` (the day "present"
