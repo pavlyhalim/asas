@@ -218,7 +218,8 @@ its digits.
 `load_model`, `parse_model`, `ProfileModel`, `Section`, `Spec`, `ModelError`,
 `KINDS`, `ROLES`, `COMPUTED`, `TYPES`, `BUDGET`; `read_cv`, `Lines`,
 `LayoutReader`, `Refused`, `CODES` (asas-cv's codes, then this package's);
-`Asker`, `default_release`; `ProfileBuilder` (`build`, `recheck`, `other_again`;
+`Asker` (`raises=` the host's errors to raise, such as a guard's refusal; any other
+failure is recorded by type, never by its message, which can repeat CV text), `default_release`; `ProfileBuilder` (`build`, `recheck`, `other_again`;
 `one_call=False` packs the sections into calls under `BUDGET`, `followups="each"`
 gives each gap a call instead of the default two-call cap, `keep_all` and `keep_personal` widen other information); the seams `Ask`
 (with its `release`), `CallResult`, `PdfReader`, `Finish`; the output shapes `Built`,

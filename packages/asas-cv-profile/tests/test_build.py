@@ -315,3 +315,36 @@ def test_a_call_counts_its_whole_request_against_the_minute(model):
     text = "L001 Sara Example"
     assert asker.need(text, group.model) > _tokens(release["instructions"]) + _tokens(text) + ANSWER_ROOM
     assert asker.need(text) == _tokens(release["instructions"]) + _tokens(text) + ANSWER_ROOM
+
+
+def test_a_failed_call_records_its_error_type_never_its_message(model, monkeypatch, caplog):
+    """A failed answer check repeats the answer, so its message can hold CV text: the call
+    is recorded (and logged) by its error's type alone. An error the host names in
+    ``raises``, such as its guard's refusal, is raised instead."""
+    import asyncio
+    import logging
+
+    import asas_agent
+    import pytest
+
+    from asas_cv_profile import Asker
+
+    class Refused(Exception):
+        pass
+
+    async def fails(*args, **kwargs):
+        raise ValueError("Sara Example, sara@example.com, Lecturer at Example University")
+
+    monkeypatch.setattr(asas_agent, "run_agent", fails)
+    group = one_group(model.asked)
+    release = {"model": "scripted", "instructions": "Read the CV.", "settings": {}}
+    with caplog.at_level(logging.DEBUG):
+        res = asyncio.run(Asker(release, run_model=object())("ProfileAll", "L001 Sara Example", group.model, "1 call"))
+    assert res.error == "ValueError" and "Sara" not in caplog.text
+
+    async def refuses(*args, **kwargs):
+        raise Refused("the guard said no")
+
+    monkeypatch.setattr(asas_agent, "run_agent", refuses)
+    with pytest.raises(Refused):
+        asyncio.run(Asker(release, run_model=object(), raises=(Refused,))("ProfileAll", "L001", group.model, "1 call"))

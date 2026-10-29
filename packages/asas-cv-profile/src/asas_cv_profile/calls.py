@@ -111,15 +111,22 @@ class Asker:
     """The calls of a run, on one release and one provider (or a model the host wraps,
     such as :class:`asas_agent.GuardedModel`). ``parallel`` caps calls at once;
     ``tokens_per_minute`` keeps them under the key's limit (0: no limit). Bound to the
-    event loop of its first call, as the provider's client is."""
+    event loop of its first call, as the provider's client is.
+
+    A failed call is recorded, not raised, as its error's type (and HTTP status), never
+    its message: a failed answer check repeats the answer, so the message can hold CV
+    text, and the record is logged and stored. ``raises`` names the errors the host
+    wants raised instead, such as its guard's refusal."""
 
     def __init__(self, release: Mapping[str, Any], *, provider: Any = None, run_model: Any = None, parallel: int = 3,
-                 tokens_per_minute: int = 0, requests_per_minute: int = 0):
+                 tokens_per_minute: int = 0, requests_per_minute: int = 0,
+                 raises: tuple[type[BaseException], ...] = ()):
         if (provider is None) == (run_model is None):
             raise ValueError("Asker needs a provider or a run_model, not both")
         self.release = {**release, "skills": {}}
         self.provider, self.run_model = provider, run_model
         self.parallel, self.tokens_per_minute, self.requests_per_minute = parallel, tokens_per_minute, requests_per_minute
+        self.raises = raises
         self._loop: asyncio.AbstractEventLoop | None = None
         self._gate: asyncio.Semaphore | None = None
         self._limiter: Any = None
@@ -175,10 +182,10 @@ class Asker:
                 result = await run_agent(snapshot, _no_tools, _no_tools, renderer=_Plain(), provider=self.provider,
                                          run_model=self.run_model, output_type=output_type)
             out.output, out.usage = result["output"], {k: v for k, v in result["usage"].items() if k != "calls"}
-        except APIStatusError as exc:
-            out.error = f"{exc.status_code}: {str(exc)[:300]}"
         except Exception as exc:  # noqa: BLE001 a schema refusal, a timeout or a bad answer: recorded, not raised
-            out.error = f"{type(exc).__name__}: {str(exc)[:300]}"
+            if self.raises and isinstance(exc, self.raises):
+                raise
+            out.error = f"{exc.status_code} {type(exc).__name__}" if isinstance(exc, APIStatusError) else type(exc).__name__
         out.seconds = round(time.perf_counter() - start, 1)
         log.info("%s: %s in %ss%s", name, f"failed: {out.error}" if out.error else "done", out.seconds,
                  f", {out.usage.get('input_tokens', 0)} in / {out.usage.get('output_tokens', 0)} out" if out.usage else "")

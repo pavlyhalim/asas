@@ -20,7 +20,9 @@ First release.
   or 1% of the words in the PDF's own text layer gets a warning.
 - **Calls**: `Asker` runs the package's profile-builder release on asas-agent, with a
   cap on calls at once and tokens-a-minute and requests-a-minute buckets; each request
-  is counted whole (instructions, output schema and message).
+  is counted whole (instructions, output schema and message). A failed call is recorded by its error's
+  type and HTTP status, never its message (which can repeat CV text); `raises` names the
+  errors a host wants raised instead, such as its guard's refusal.
 - **Build**: `ProfileBuilder.build`, `recheck` (no model call) and `other_again`;
   values checked against their lines, follow-up calls only where the text shows a
   need, twins folded (and flagged where dates alone chose the pair), skills kept in
