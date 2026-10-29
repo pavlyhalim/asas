@@ -16,3 +16,8 @@ src/asas_cv_profile/skills.py holds a skill-list splitter from Resume-Matcher
 (github.com/srbhr/Resume-Matcher), Copyright Saurabh Rai and Resume-Matcher
 contributors, licensed under the Apache License, Version 2.0. The change made
 is stated in that file.
+
+src/asas_cv_profile/arabic.py holds the Arabic diacritic set and three letter
+normalisations of CAMeL Tools (github.com/CAMeL-Lab/camel_tools), Copyright
+New York University Abu Dhabi, licensed under the MIT License. They are written
+there as character maps; the tatweel is also dropped, which CAMeL Tools leaves.

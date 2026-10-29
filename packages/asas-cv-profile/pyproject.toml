@@ -29,9 +29,9 @@ dependencies = [
     "lxml>=6.1",
     "pydantic>=2.11,<3",
     "pyyaml>=6.0",
-    # matching values to their lines: Arabic letter folding, Levenshtein ratios, dates in
-    # every Arabic region's month names and the Hijri calendar, phone numbers as numbers
-    "camel-tools>=1.5",
+    # matching values to their lines: Levenshtein ratios, dates in every Arabic region's
+    # month names and the Hijri calendar, phone numbers as numbers (Arabic letter folding
+    # is CAMeL Tools' character maps, kept in arabic.py: see NOTICE)
     "rapidfuzz>=3",
     "dateparser>=1.2",
     "hijridate>=2.5",

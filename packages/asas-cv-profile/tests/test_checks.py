@@ -139,7 +139,10 @@ def test_what_a_ratio_cannot_see_is_checked_first():
 
 
 def test_arabic_folding_is_camel_tools():
+    """CAMeL Tools' four foldings, as character maps: every diacritic it names, every alef
+    form, alef maksura and teh marbuta."""
     from asas_cv_profile.arabic import ARABIC_RE, fold
 
     assert fold("مُحَمَّد") == "محمد" and fold("أحمد إبراهيم آمنة") == "احمد ابراهيم امنه" and fold("مستشفى") == "مستشفي"
+    assert fold("ٱلْقُرْآن هٰذا كِتَابٌ جَمِيلًا مُعَلِّمٍ") == "القران هذا كتاب جميلا معلم"
     assert ARABIC_RE.search("ﻣﺤﻤﺪ") and not ARABIC_RE.search("Mohammed")  # presentation forms count as Arabic

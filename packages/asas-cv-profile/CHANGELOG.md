@@ -28,7 +28,8 @@ First release.
   took kept as other information. Dates are read in every Arabic region's month names,
   as Hijri dates by month name or in numbers in any order, and both ways where day and
   month, or day and two-digit year, could swap; a Hijri year copied as the date becomes
-  its Gregorian date. A build makes two calls at most by default (`followups="one"`):
+  its Gregorian date. Arabic letters are folded with CAMeL Tools' character maps, held
+  in the package (camel-tools itself brings torch and transformers, which the reader never uses). A build makes two calls at most by default (`followups="one"`):
   one reading and one follow-up carrying every gap; `followups="each"` gives each gap a call. `keep_all` keeps every line no field took in
   other information; `keep_personal` keeps personal facts in a block of their own
   marked restricted, never sent to a model call by the package.
