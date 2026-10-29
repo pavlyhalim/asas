@@ -99,12 +99,14 @@ class OtherLines:
     def uncited(self, profile: dict, text: Lines) -> list[list[int]]:
         """Runs of UNCITED_RUN or more content lines no entry and no text field cites, as
         [first, last, count]: something missed, or what the profile has no field for.
-        Other information does not count as citing them, so a miss still shows."""
+        Other information does not count as citing them, so a miss still shows. A line
+        stating a personal fact is never a miss (no field takes one), so it is never
+        sent to be placed."""
         cited = self.cited(profile)
         runs: list[list[int]] = []
         current: list[int] = []
         for n, line in enumerate(text.lines, 1):
-            if n in cited:
+            if n in cited or personal(line):
                 if current:
                     runs.append(current)
                 current = []

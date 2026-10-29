@@ -34,7 +34,8 @@ First release.
   in the package (camel-tools itself brings torch and transformers, which the reader never uses). A build makes two calls at most by default (`followups="one"`):
   one reading and one follow-up carrying every gap; `followups="each"` gives each gap a call. `keep_all` keeps every line no field took in
   other information; `keep_personal` keeps personal facts in a block of their own
-  marked restricted, never sent to a model call by the package.
+  marked restricted, never sent to a model call by the package (neither to the naming
+  call nor as lines left to place in the follow-up).
 - **Command line** `asas-cv-profile` (`schema`, `one`, `run`, `recheck`, `other`,
   `serve`; `run --cvs-at-once` reads CVs together under the same limits, and a release
   can come from a release store with `--store` and `--label`, or from an agents folder at

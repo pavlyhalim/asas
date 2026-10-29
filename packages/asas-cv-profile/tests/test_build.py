@@ -348,3 +348,23 @@ def test_a_failed_call_records_its_error_type_never_its_message(model, monkeypat
     monkeypatch.setattr(asas_agent, "run_agent", refuses)
     with pytest.raises(Refused):
         asyncio.run(Asker(release, run_model=object(), raises=(Refused,))("ProfileAll", "L001", group.model, "1 call"))
+
+
+def test_personal_lines_are_never_sent_to_be_placed(model):
+    """A run of personal facts the main call left uncited is not a miss: no field takes
+    one, so the one follow-up never carries them to the model."""
+    text = ["Sara Example", "EXPERIENCE", "Lecturer, Example University, 2019-2023", "PERSONAL DETAILS",
+            "Marital status: married", "Date of birth: 1 January 1990", "Religion: example", "Gender: female",
+            "Place of birth: Example City", "Age: 36", "Number of children: 2", "Dependants: 2", "Marital status: married"]
+
+    def answer(call, s):
+        if s.name == "Professional":
+            return [{**blank(s), "job_title": "Lecturer", "lines": [[3, 3]]}]
+        if s.name == "Level":
+            return {**blank(s), "seniority": "Senior", "lines": [[3, 3]]}
+        return None
+
+    scripted = Scripted(model, answer)
+    run(ProfileBuilder(model, scripted, keep_all=True, keep_personal=True).build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
+    sent = " ".join(msg for name, msg in scripted.sent if name != "ProfileAll")
+    assert "Marital status" not in sent and "Religion" not in sent
