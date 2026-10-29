@@ -42,6 +42,7 @@ from .model import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover
+    from .answers import personal
     from .build import ProfileBuilder
     from .calls import Asker, default_release
     from .report import review, summary, write_outputs
@@ -52,6 +53,7 @@ if TYPE_CHECKING:  # pragma: no cover
 __version__ = "0.1.0"
 
 _LAZY: dict[str, str] = {
+    "personal": "answers",
     "ProfileBuilder": "build",
     "Ask": "seams",
     "Finish": "seams",
@@ -105,6 +107,7 @@ __all__ = [
     "default_release",
     "load_model",
     "parse_model",
+    "personal",
     "read_cv",
     "review",
     "summary",

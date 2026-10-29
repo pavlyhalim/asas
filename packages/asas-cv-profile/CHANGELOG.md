@@ -37,7 +37,8 @@ First release.
   marked restricted, never sent to a model call by the package (neither to the naming
   call nor as lines left to place in the follow-up). A personal line goes to that block even when a field
   cites it, and the facts are found as CVs write them (DOB, birth date, "Age 33",
-  "Children: 2", and their Arabic forms).
+  "Children: 2", and their Arabic forms). `personal(line)` is exported, so a host that stores
+  a reading can screen it with the same rule.
 - **Command line** `asas-cv-profile` (`schema`, `one`, `run`, `recheck`, `other`,
   `serve`; `run --cvs-at-once` reads CVs together under the same limits, and a release
   can come from a release store with `--store` and `--label`, or from an agents folder at

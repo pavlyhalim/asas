@@ -215,7 +215,7 @@ its digits.
 
 ## Surface
 
-`load_model`, `parse_model`, `ProfileModel`, `Section`, `Spec`, `ModelError`,
+`load_model`, `parse_model`, `personal` (whether a line states a personal fact), `ProfileModel`, `Section`, `Spec`, `ModelError`,
 `KINDS`, `ROLES`, `COMPUTED`, `TYPES`, `BUDGET`; `read_cv`, `Lines`,
 `LayoutReader`, `Refused`, `CODES` (asas-cv's codes, then this package's);
 `Asker` (`raises=` the host's errors to raise, such as a guard's refusal; any other
