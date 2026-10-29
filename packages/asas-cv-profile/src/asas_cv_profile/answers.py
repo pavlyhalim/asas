@@ -24,11 +24,14 @@ from .seams import CallResult
 
 #: words that mean a line carries personal facts the profile must not hold
 NEVER = re.compile(
-    r"\b(marital status|civil status|married|divorced|widowed|spouse|number of children|dependants|pregnan\w*|"
-    r"religion|date of birth|d\.o\.b|born on|place of birth|age\s*:|gender\s*:|sex\s*:)",
+    r"\b(marital status|civil status|married|divorced|widowed|spouse|number of children|dependants|dependents|pregnan\w*|"
+    r"religion|date of birth|d\.o\.b|dob|birth ?date|born on|place of birth|birth ?place|age\s*:|gender\s*:|sex\s*:)",
     re.IGNORECASE,
 )
-NEVER_AR = re.compile("الحالة الاجتماعية|متزوج|أعزب|عدد الأطفال|الديانة|تاريخ الميلاد|مكان الميلاد|الجنس\\s*:")
+#: a personal label written as one at the start of a line or after a separator ("Age 33",
+#: "| Children: 2"), so "average age of the fleet" or "children's hospital" stays a line of the CV
+NEVER_LABEL = re.compile(r"(?:^|[|;,•·])\s*(?:age|children|kids)\s*[:\-]?\s*\d", re.IGNORECASE)
+NEVER_AR = re.compile("الحالة الاجتماعية|متزوج|أعزب|عدد الأطفال|الأطفال\\s*:|الأولاد\\s*:|الديانة|تاريخ الميلاد|تاريخ الولادة|مكان الميلاد|مكان الولادة|العمر\\s*:|الجنس\\s*:")
 #: a re-asked part: "<call>.<section>[<entry>]" or ".<field>" after it
 REF = re.compile(r"^(\w+)\.(\w+)\[(\d+)\](?:\.(\w+))?$")
 #: RapidFuzz token-sort ratio at which a second look's entry is one the list already holds
@@ -36,7 +39,7 @@ SAME_ITEM = 92
 
 
 def personal(line: str | None) -> bool:
-    return line is not None and bool(NEVER.search(line) or NEVER_AR.search(line))
+    return line is not None and bool(NEVER.search(line) or NEVER_LABEL.search(line) or NEVER_AR.search(line))
 
 
 def spans(ranges: Any, size: int) -> tuple[list[int], bool]:

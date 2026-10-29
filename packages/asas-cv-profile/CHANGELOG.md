@@ -35,7 +35,9 @@ First release.
   one reading and one follow-up carrying every gap; `followups="each"` gives each gap a call. `keep_all` keeps every line no field took in
   other information; `keep_personal` keeps personal facts in a block of their own
   marked restricted, never sent to a model call by the package (neither to the naming
-  call nor as lines left to place in the follow-up).
+  call nor as lines left to place in the follow-up). A personal line goes to that block even when a field
+  cites it, and the facts are found as CVs write them (DOB, birth date, "Age 33",
+  "Children: 2", and their Arabic forms).
 - **Command line** `asas-cv-profile` (`schema`, `one`, `run`, `recheck`, `other`,
   `serve`; `run --cvs-at-once` reads CVs together under the same limits, and a release
   can come from a release store with `--store` and `--label`, or from an agents folder at

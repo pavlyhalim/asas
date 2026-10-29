@@ -368,3 +368,34 @@ def test_personal_lines_are_never_sent_to_be_placed(model):
     run(ProfileBuilder(model, scripted, keep_all=True, keep_personal=True).build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
     sent = " ".join(msg for name, msg in scripted.sent if name != "ProfileAll")
     assert "Marital status" not in sent and "Religion" not in sent
+
+
+def test_personal_facts_are_found_in_the_forms_cvs_write_them():
+    """Labels as CVs write them, in English and Arabic; a word that only looks like one
+    ("average age of the fleet", "children's hospital") is a line of the CV."""
+    from asas_cv_profile.answers import personal
+
+    for line in ("DOB: 12/03/1991", "Birth date: 12 March 1991", "Age 33", "• Age - 33", "Children: 2",
+                 "Nationality: UAE | DOB: 1990", "العمر: 33", "تاريخ الولادة: 1990", "الأطفال: 2"):
+        assert personal(line), line
+    for line in ("Average age of the fleet cut by 4 years", "Led the children's hospital project",
+                 "Agency Manager, Example Co", "Managed 33 staff"):
+        assert not personal(line), line
+
+
+def test_a_personal_line_a_field_cites_is_still_kept_apart(model):
+    """A field may cite a line that also states a personal fact ("Nationality: ... |
+    Marital status: ..."): the line still goes to the restricted block."""
+    text = ["Sara Example", "Nationality: United Arab Emirates | Marital status: married", "EXPERIENCE",
+            "Lecturer, Example University, 2019-2023"]
+
+    def answer(call, s):
+        if s.name == "Nationality":
+            return {**blank(s), "nationality": "United Arab Emirates", "lines": [[2, 2]]}
+        if s.name == "Professional":
+            return [{**blank(s), "job_title": "Lecturer", "lines": [[4, 4]]}]
+        return None
+
+    built = run(ProfileBuilder(model, Scripted(model, answer), keep_personal=True).build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
+    blocks = built["profile"]["Identity"].get("Other information") or []
+    assert any(b.get("restricted") and 2 in b["lines"] for b in blocks)

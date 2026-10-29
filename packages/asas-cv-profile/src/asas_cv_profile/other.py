@@ -134,11 +134,11 @@ class OtherLines:
                 at, topic = n, title(line)
                 keep_out = not h and any(has(checks.norm(topic), w) for w in keep_out_words)
                 continue
-            if n in cited or sum(ch.isalpha() for ch in line) < 3:
-                continue
-            if personal(line):
+            if personal(line):  # before the cited test: a field may cite a line that also states a personal fact
                 if self.keep_personal:
                     restricted.append(n)
+                continue
+            if n in cited or sum(ch.isalpha() for ch in line) < 3:
                 continue
             if not self.keep_all and (keep_out or CONTACT.search(line)):
                 continue
