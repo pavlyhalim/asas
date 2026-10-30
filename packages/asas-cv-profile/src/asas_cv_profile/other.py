@@ -4,7 +4,8 @@ Every content line no field took goes to the section of kind ``other_information
 entry per heading it sits under (the field with role ``topic``: the heading; ``details``:
 the lines), so nothing the CV says is lost. Left out: lines under a referees or
 personal-details heading, personal facts, and lines with an email, a link or a phone
-number. One short call names each block's kind and the lines elsewhere that already say
+number. With ``keep_all``, a line a field took only part of is kept too: one with a sentence
+that shares no word or number with any value citing the line. One short call names each block's kind and the lines elsewhere that already say
 what it says; code checks that claim before a block is left out as a repeat.
 """
 
@@ -31,6 +32,11 @@ CONTACT = re.compile(r"@|https?://|www\.|(?<!\d)(?:\+|00)?\d(?:[\s().-]?\d){8,}(
 #: lines it repeats or in a line a field cites: the model says which lines, code checks it
 REPEAT_MARKS = 0.8
 _MARK = re.compile(r"[a-z][a-z+#.]+|\d+")
+#: keep_all: a sentence of at least this many marks that no value citing its line shares
+#: one with is the rest of a line a field took part of ("Holds a driving licence. Open to
+#: relocating."), kept as other information so it is not lost
+LEFT_OVER_MARKS = 3
+_SENTENCE = re.compile(r"(?<=[.!?;])\s+")
 
 
 def marks(text: str) -> set[str]:
@@ -96,6 +102,34 @@ class OtherLines:
                         cited.update(cell.get("lines") or [])
         return cited
 
+    def partly_taken(self, profile: dict, text: Lines) -> set[int]:
+        """Cited lines with a sentence (LEFT_OVER_MARKS or more marks) that shares no mark
+        with any value of an entry citing the line: a field took one fact from a line that
+        says more. A text field copies whole lines, so the lines it cites are never here."""
+        said: dict[int, set[str]] = {}
+        s = self.section
+        for cat, subs in profile.items():
+            for sub, node in subs.items():
+                if s and (cat, sub) == (s.group, s.name):
+                    continue
+                for e in node if isinstance(node, list) else [node]:
+                    got: set[str] = set()
+                    nums = set(e.get("lines") or [])
+                    for cell in (e.get("fields") or {}).values():
+                        nums.update(cell.get("lines") or [])
+                        v = cell.get("value")
+                        for x in v if isinstance(v, list) else [v]:
+                            if isinstance(x, (str, int, float)) and not isinstance(x, bool):
+                                got |= marks(str(x))
+                    for n in nums:
+                        said.setdefault(n, set()).update(got)
+        out: set[int] = set()
+        for n, got in said.items():
+            sentences = (marks(p) for p in _SENTENCE.split(text.line(n) or ""))
+            if any(len(m) >= LEFT_OVER_MARKS and not m & got for m in sentences):
+                out.add(n)
+        return out
+
     def uncited(self, profile: dict, text: Lines) -> list[list[int]]:
         """Runs of UNCITED_RUN or more content lines no entry and no text field cites, as
         [first, last, count]: something missed, or what the profile has no field for.
@@ -122,6 +156,8 @@ class OtherLines:
         if (t := self.target) is None:
             return []
         cited = self.cited(profile) | skip
+        if self.keep_all:
+            cited -= self.partly_taken(profile, text) - skip
         keep_out_words = tuple(checks.norm(w) for w in KEEP_OUT)
         found: dict[int, tuple[str, list[int]]] = {}
         restricted: list[int] = []

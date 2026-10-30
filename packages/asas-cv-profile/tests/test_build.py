@@ -279,6 +279,26 @@ def test_keep_all_keeps_personal_details_and_contact_lines_but_not_personal_fact
     assert {5, 6, 8} <= kept(every) and 7 not in kept(every)
 
 
+def test_keep_all_keeps_the_rest_of_a_line_a_field_took_part_of(model):
+    """keep_all: a field took one fact from a line that says more; the line is kept as other
+    information too, so the rest is not lost. A line its values cover is not."""
+    text = ["Sara Example", "EXPERIENCE", "Lecturer, Example University, 2019-2023",
+            "Lecturer at Example University. Interests: falconry and long-distance running."]
+
+    def answer(call, s):
+        if s.name == "Professional":
+            return [{**blank(s), "job_title": "Lecturer", "company": "Example University", "lines": [[3, 4]]}]
+        if s.name == "Level":
+            return {**blank(s), "seniority": "Senior", "lines": [[3, 3]]}
+        return None
+
+    kept = lambda b: {n for e in b["profile"].get("Identity", {}).get("Other information", []) for n in e["lines"]}  # noqa: E731
+    plain = run(ProfileBuilder(model, Scripted(model, answer)).build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
+    every = run(ProfileBuilder(model, Scripted(model, answer), keep_all=True).build(b"", "cv.txt", as_of=AS_OF, text=lines(*text)))
+    assert 4 not in kept(plain)
+    assert 4 in kept(every) and 3 not in kept(every)
+
+
 def test_keep_personal_keeps_personal_facts_apart_and_marked_restricted(model):
     text = ["Sara Example", "EXPERIENCE", "Lecturer, Example University, 2019-2023", "PERSONAL DETAILS",
             "Visa status: residence permit", "Marital status: married"]
