@@ -339,3 +339,22 @@ def test_a_fields_note_reaches_the_model_whatever_its_type():
     props = entry_model(section).model_json_schema()["properties"]
     for spec in section.specs:
         assert note in props[spec.slug]["description"], spec.name
+
+
+def test_a_required_choice_is_never_null_in_the_schema():
+    """required: true makes an enum with values non-nullable, so strict structured outputs
+    always give one; anything else marked required is refused when the model is read."""
+    import pytest
+    from asas_cv_profile.model import ModelError, entry_model, parse_model
+
+    doc = {"sections": [{"name": "Skills", "list": True, "fields": [
+        {"name": "Skill", "type": "string"},
+        {"name": "Type", "type": "enum", "values": ["Job skill", "Digital and AI"], "required": True},
+        {"name": "Level", "type": "enum", "values": ["1", "2"]},
+    ]}]}
+    section = parse_model(doc).sections[0]
+    props = entry_model(section).model_json_schema()["properties"]
+    assert props["type"].get("enum") == ["Job skill", "Digital and AI"] and "anyOf" not in props["type"]
+    assert any(x.get("type") == "null" for x in props["level"]["anyOf"])
+    with pytest.raises(ModelError, match="required needs an enum"):
+        parse_model({"sections": [{"name": "X", "fields": [{"name": "A", "type": "string", "required": True}]}]})

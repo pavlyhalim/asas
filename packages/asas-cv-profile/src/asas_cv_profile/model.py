@@ -29,7 +29,9 @@ their country code are compared), ``text`` (cited as lines
 and copied from them by code), ``date`` (YYYY-MM or YYYY), ``year``, ``number``,
 ``boolean``, ``enum`` and ``multi_enum`` (from ``values``; without ``values``, the
 CV's own words). ``note`` is shown to the model beside the field. ``infer: true``
-lets the value be worked out from the CV rather than copied; ``copied: false`` marks
+lets the value be worked out from the CV rather than copied; ``required: true`` on an
+``enum`` with ``values`` makes the choice non-nullable in the schema, so every entry
+gets one (strict structured outputs enforce it, where a note only asks); ``copied: false`` marks
 a string chosen from a list the host keeps (a country code) rather than copied.
 ``computed`` fields are filled after the model answers, never asked: the package
 fills those named in :data:`COMPUTED`, and ``computed: host`` is left to the host.
@@ -121,6 +123,7 @@ class Spec:
     copied: bool = True
     role: str | None = None
     computed: str | None = None
+    required: bool = False  # an enum with values the schema never lets be null
     slug: str = ""
     region: str | None = None  # a phone field's: the model's region
 
@@ -281,7 +284,10 @@ def _spec(f: Any, section: str, kind: str | None, at: str) -> Spec:
         if COMPUTED[computed] not in (None, kind):
             raise ModelError(f"{at}: computed {computed!r} belongs in a {COMPUTED[computed]} section")
     values = [str(v) for v in f.get("values") or []]
-    return Spec(section=section, name=str(f["name"]), type=typ, note=str(f.get("note") or ""), values=values,
+    required = bool(f.get("required", False))
+    if required and not (typ == "enum" and values):
+        raise ModelError(f"{at}: required needs an enum with values, a choice the model can always make")
+    return Spec(section=section, name=str(f["name"]), type=typ, note=str(f.get("note") or ""), values=values, required=required,
                 infer=bool(f.get("infer", False)), copied=bool(f.get("copied", True)), role=role, computed=computed)
 
 
@@ -315,6 +321,8 @@ def _typed(spec: Spec) -> tuple[Any, str]:
         lit: Any = Literal[tuple(spec.values)]  # a type built at run time from the host's values
         if spec.type == "multi_enum":
             return list[lit], "Any of the listed values. Empty when none."
+        if spec.required:
+            return lit, "One of the listed values, always: never null."
         return Optional[lit], "One of the listed values. Null when not stated."
     if spec.type == "multi_enum":
         return list[str], f"Each as the CV words it ({note}). Empty when none."
