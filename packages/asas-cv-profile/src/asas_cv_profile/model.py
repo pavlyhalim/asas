@@ -293,6 +293,14 @@ Ranges = list[list[int]]
 
 
 def _annotation(spec: Spec) -> tuple[Any, str]:
+    """The field's type and description; its note is in the description whatever the type."""
+    ann, desc = _typed(spec)
+    if spec.note and spec.note not in desc:
+        desc = f"{desc} {spec.note}"
+    return ann, desc
+
+
+def _typed(spec: Spec) -> tuple[Any, str]:
     note = spec.note
     if spec.type == "text":
         return Ranges, "The lines that hold this text, as ranges [first, last], in reading order. Numbers, not words. Empty when absent."

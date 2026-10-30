@@ -319,3 +319,23 @@ def test_a_bilingual_skills_list_is_not_held_twice(model):
     arabic = {"Technical skills": {"Job skills": [skill(4, "الميزانية"), skill(4, "المناقصات")]}}
     copy_and_restore(arabic, ["SKILLS", "", "المهارات", "الميزانية، المناقصات، إدارة العقود"], model, Headings())
     assert [e["fields"]["Skill"]["value"] for e in arabic["Technical skills"]["Job skills"]][2:] == ["إدارة العقود"]  # an Arabic CV's own list
+
+
+def test_a_fields_note_reaches_the_model_whatever_its_type():
+    """The module's promise: a note is shown to the model beside the field, for a choice
+    from listed values, a date, a number, a yes/no and copied text as much as for a string."""
+    from asas_cv_profile.model import parse_model, entry_model
+
+    note = "Never guess this from the employer's name."
+    doc = {"sections": [{"name": "Things", "fields": [
+        {"name": "Choice", "type": "enum", "values": ["A", "B"], "note": note},
+        {"name": "When", "type": "date", "note": note},
+        {"name": "How many", "type": "number", "note": note},
+        {"name": "Yes or no", "type": "boolean", "note": note},
+        {"name": "Words", "type": "text", "note": note},
+        {"name": "Name", "type": "string", "note": note},
+    ]}]}
+    section = parse_model(doc).sections[0]
+    props = entry_model(section).model_json_schema()["properties"]
+    for spec in section.specs:
+        assert note in props[spec.slug]["description"], spec.name
