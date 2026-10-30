@@ -4,8 +4,10 @@ Every content line no field took goes to the section of kind ``other_information
 entry per heading it sits under (the field with role ``topic``: the heading; ``details``:
 the lines), so nothing the CV says is lost. Left out: lines under a referees or
 personal-details heading, personal facts, and lines with an email, a link or a phone
-number. With ``keep_all``, a line a field took only part of is kept too: one with a sentence
-that shares no word or number with any value citing the line. One short call names each block's kind and the lines elsewhere that already say
+number. With ``keep_all``, the part of a line a field took only part of is kept too: the
+characters no value's span covers (:mod:`.spans`), a sentence of them at a time, unless it
+shares a word or number with a value in the model's own words citing the line (a date, a
+choice). Each block's details carry the spans of exactly what it keeps. One short call names each block's kind and the lines elsewhere that already say
 what it says; code checks that claim before a block is left out as a repeat.
 """
 
@@ -14,7 +16,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from . import calls, checks
+from . import calls, checks, spans
 from .answers import cited_text, personal
 from .headings import Headings, has, marked, title
 from .lines import Lines
@@ -32,11 +34,12 @@ CONTACT = re.compile(r"@|https?://|www\.|(?<!\d)(?:\+|00)?\d(?:[\s().-]?\d){8,}(
 #: lines it repeats or in a line a field cites: the model says which lines, code checks it
 REPEAT_MARKS = 0.8
 _MARK = re.compile(r"[a-z][a-z+#.]+|\d+")
-#: keep_all: a sentence of at least this many marks that no value citing its line shares
-#: one with is the rest of a line a field took part of ("Holds a driving licence. Open to
-#: relocating."), kept as other information so it is not lost
+#: keep_all: a sentence of uncovered characters with at least this many marks, and none in
+#: common with a value in the model's own words citing its line, is the rest of a line a
+#: field took part of ("Holds a driving licence. Open to relocating."), kept as other
+#: information so it is not lost
 LEFT_OVER_MARKS = 3
-_SENTENCE = re.compile(r"(?<=[.!?;])\s+")
+_SENTENCE = re.compile(r"[^.!?;]+[.!?;]?")
 
 
 def marks(text: str) -> set[str]:
@@ -102,32 +105,41 @@ class OtherLines:
                         cited.update(cell.get("lines") or [])
         return cited
 
-    def partly_taken(self, profile: dict, text: Lines) -> set[int]:
-        """Cited lines with a sentence (LEFT_OVER_MARKS or more marks) that shares no mark
-        with any value of an entry citing the line: a field took one fact from a line that
-        says more. A text field copies whole lines, so the lines it cites are never here."""
-        said: dict[int, set[str]] = {}
+    def left_over(self, profile: dict, text: Lines) -> dict[int, list[tuple[int, int]]]:
+        """For each cited line a field took only part of, the character ranges of what is
+        left: sentences of characters no value's span covers, of LEFT_OVER_MARKS or more
+        marks, sharing none with a value in the model's own words that cites the line."""
         s = self.section
+        skip = (s.group, s.name) if s else None
+        cover = spans.covered(profile, skip)
+        said: dict[int, set[str]] = {}
         for cat, subs in profile.items():
             for sub, node in subs.items():
-                if s and (cat, sub) == (s.group, s.name):
+                if (cat, sub) == skip:
                     continue
                 for e in node if isinstance(node, list) else [node]:
-                    got: set[str] = set()
+                    own: set[str] = set()
                     nums = set(e.get("lines") or [])
                     for cell in (e.get("fields") or {}).values():
                         nums.update(cell.get("lines") or [])
+                        if cell.get("spans"):
+                            continue
                         v = cell.get("value")
                         for x in v if isinstance(v, list) else [v]:
                             if isinstance(x, (str, int, float)) and not isinstance(x, bool):
-                                got |= marks(str(x))
+                                own |= marks(str(x))
                     for n in nums:
-                        said.setdefault(n, set()).update(got)
-        out: set[int] = set()
-        for n, got in said.items():
-            sentences = (marks(p) for p in _SENTENCE.split(text.line(n) or ""))
-            if any(len(m) >= LEFT_OVER_MARKS and not m & got for m in sentences):
-                out.add(n)
+                        said.setdefault(n, set()).update(own)
+        out: dict[int, list[tuple[int, int]]] = {}
+        for n in sorted(set(cover) | set(said)):
+            line = text.line(n) or ""
+            for a, b in spans.gaps(len(line), cover.get(n, [])):
+                for m in _SENTENCE.finditer(line, a, b):
+                    part = m.group()
+                    found = marks(part)
+                    if len(found) >= LEFT_OVER_MARKS and not found & said.get(n, set()):
+                        start = m.start() + len(part) - len(part.lstrip())
+                        out.setdefault(n, []).append((start, m.end() - (len(part) - len(part.rstrip()))))
         return out
 
     def uncited(self, profile: dict, text: Lines) -> list[list[int]]:
@@ -156,8 +168,8 @@ class OtherLines:
         if (t := self.target) is None:
             return []
         cited = self.cited(profile) | skip
-        if self.keep_all:
-            cited -= self.partly_taken(profile, text) - skip
+        left = self.left_over(profile, text) if self.keep_all else {}
+        cited -= set(left) - skip
         keep_out_words = tuple(checks.norm(w) for w in KEEP_OUT)
         found: dict[int, tuple[str, list[int]]] = {}
         restricted: list[int] = []
@@ -179,14 +191,19 @@ class OtherLines:
             if not self.keep_all and (keep_out or CONTACT.search(line)):
                 continue
             found.setdefault(at, (topic, []))[1].append(n)
+        def kept(nums: list[int]) -> list[list[int]]:
+            """The spans of what a block keeps: the left-over part of a line a field took, else the whole line."""
+            return [[n, a, b] for n in nums for a, b in (left.get(n) or [(0, len(text.line(n) or ""))])]
+
         out = [{"lines": nums, "fields": {
                     t.topic.name: {"kind": "copied", "check": "unplaced", "value": topic},
-                    t.details.name: {"kind": "text", "lines": nums, "check": "unplaced", "value": "\n".join(text.line(n) or "" for n in nums)}}}
+                    t.details.name: {"kind": "text", "lines": nums, "check": "unplaced", "spans": kept(nums),
+                                     "value": "\n".join(text.line(n) or "" for n in nums)}}}
                for _, (topic, nums) in sorted(found.items())]
         if restricted:
             out.append({"lines": restricted, "restricted": True, "fields": {
                 t.topic.name: {"kind": "copied", "check": "unplaced", "value": RESTRICTED_TOPIC},
-                t.details.name: {"kind": "text", "lines": restricted, "check": "unplaced",
+                t.details.name: {"kind": "text", "lines": restricted, "check": "unplaced", "spans": kept(restricted),
                                  "value": "\n".join(text.line(n) or "" for n in restricted)}}})
         return out
 

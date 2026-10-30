@@ -26,7 +26,7 @@ from collections import Counter
 from dataclasses import replace
 from datetime import date
 
-from . import __version__, answers, calls, experience, followups, skills
+from . import __version__, answers, calls, experience, followups, skills, spans
 from .headings import Headings, numbered_items
 from .lines import Lines, read_cv
 from .merged import flag_merged
@@ -217,11 +217,13 @@ class ProfileBuilder:
     def _settle(self, profile: dict, text: Lines, today: date) -> tuple[int, dict[str, int], list[str]]:
         """What code settles once the answers are in, in one order for a build and a
         recheck: twins folded, skills kept in the CV's words, the package's computed fields,
-        then the host's. Returns the twins folded, the skill fixes and the host's warnings."""
+        then the host's, then where each value stands in the CV (:mod:`.spans`). Returns the twins folded, the skill fixes and the host's warnings."""
         twins = merge_twins(profile, self.model)
         skill_fixes = skills.copy_and_restore(profile, text.lines, self.model, self.headings)
         experience.add_experience(profile, self.model, today)
-        return twins, skill_fixes, self.finish(profile, self.model, today) if self.finish else []
+        host = self.finish(profile, self.model, today) if self.finish else []
+        spans.ground(profile, text)
+        return twins, skill_fixes, host
 
     def _short_lists(self, profile: dict, text: Lines) -> list[str]:
         """A list whose heading numbers more items than the profile holds: some were not read."""
@@ -247,6 +249,7 @@ class ProfileBuilder:
         if (t := self.other.target) is not None:
             s = t.section
             profile.get(s.group, {}).pop(s.name, None)
+            spans.ground(profile, text)
             self.other.put(profile, text)
             built["calls"] = [c for c in built.get("calls", []) if c.get("group") != "OtherKinds"]
             if self.other.held(profile):
