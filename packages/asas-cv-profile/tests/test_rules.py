@@ -358,3 +358,34 @@ def test_a_required_choice_is_never_null_in_the_schema():
     assert any(x.get("type") == "null" for x in props["level"]["anyOf"])
     with pytest.raises(ModelError, match="required needs an enum"):
         parse_model({"sections": [{"name": "X", "fields": [{"name": "A", "type": "string", "required": True}]}]})
+
+
+def test_a_separator_inside_brackets_does_not_split_a_skill():
+    from asas_cv_profile.skills import _skill_line_items
+
+    items = _skill_line_items("Job skills: data strategy (expert, 5/5), data governance (4/5), budgeting (4/5)", set())
+    assert items == ["data strategy (expert, 5/5)", "data governance (4/5)", "budgeting (4/5)"]
+
+
+def test_a_restored_skill_takes_the_fields_its_lines_skills_agree_on():
+    """One Skill list told apart by a Type field: an item of a CV's skill line the model left
+    out takes the Type the line's other skills share, and "Python (5/5)" is not added beside
+    the model's "Python"."""
+    from asas_cv_profile.headings import Headings
+    from asas_cv_profile.model import parse_model
+    from asas_cv_profile.skills import copy_and_restore
+
+    model = parse_model({"sections": [{"name": "Skill", "group": "Skills", "kind": "skills", "list": True, "fields": [
+        {"name": "Skill", "type": "string", "role": "name"},
+        {"name": "Type", "type": "enum", "values": ["Job skill", "Digital and AI"], "required": True},
+    ]}]})
+    lines = ["SKILLS", "Digital and AI: Python (5/5), SQL (5/5), Azure (5/5)"]
+
+    def skill(name):
+        return {"lines": [2], "fields": {"Skill": {"kind": "copied", "check": "verified", "value": name},
+                                          "Type": {"kind": "normalised", "check": "verified", "value": "Digital and AI"}}}
+
+    profile = {"Skills": {"Skill": [skill("Python"), skill("SQL")]}}
+    copy_and_restore(profile, lines, model, Headings())
+    got = {e["fields"]["Skill"]["value"]: e["fields"]["Type"]["value"] for e in profile["Skills"]["Skill"]}
+    assert got == {"Python": "Digital and AI", "SQL": "Digital and AI", "Azure (5/5)": "Digital and AI"}

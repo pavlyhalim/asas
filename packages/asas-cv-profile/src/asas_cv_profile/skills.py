@@ -6,7 +6,8 @@ The splitter below is copied from Resume-Matcher
 Copyright Saurabh Rai and Resume-Matcher contributors; licensed under the Apache
 License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0). Changes from the
 original: the Arabic comma and semicolon (، ؛) added to its separators, so an Arabic
-list splits as an English one does. `listed` and `copy_and_restore` below are ours.
+list splits as an English one does; and a separator inside brackets does not split, so
+"data strategy (expert, 5/5)" stays one item. `listed` and `copy_and_restore` below are ours.
 """
 from __future__ import annotations
 
@@ -62,7 +63,7 @@ def _skill_line_items(line: str, anchors: set[str]) -> list[str]:
     text = _LIST_MARKER_RE.sub("", line).strip()
     text = _LINE_LABEL_RE.sub("", text)  # "Tools: Python, Rust" -> "Python, Rust"
 
-    chunks = _SKILL_SEPARATOR_RE.split(text, maxsplit=_MAX_SKILL_LINE_ITEMS)
+    chunks = _split_outside_brackets(text, _MAX_SKILL_LINE_ITEMS)
     if len(chunks) > _MAX_SKILL_LINE_ITEMS:
         return []
     items: list[str] = []
@@ -109,6 +110,27 @@ def _skill_line_items(line: str, anchors: set[str]) -> list[str]:
     return items
 
 
+_OPEN, _CLOSE = "([{", ")]}"
+
+
+def _split_outside_brackets(text: str, maxsplit: int) -> list[str]:
+    """``_SKILL_SEPARATOR_RE.split``, but a separator inside brackets does not split:
+    "data strategy (expert, 5/5), SQL" is two items. Linear in the line's length."""
+    chunks, start, depth = [], 0, 0
+    for i, ch in enumerate(text):
+        if ch in _OPEN:
+            depth += 1
+        elif ch in _CLOSE:
+            depth = max(0, depth - 1)
+        elif depth == 0 and _SKILL_SEPARATOR_RE.fullmatch(ch):
+            chunks.append(text[start:i])
+            start = i + 1
+            if len(chunks) > maxsplit:
+                break
+    chunks.append(text[start:])
+    return chunks
+
+
 def _is_prose(words: list[str]) -> bool:
     """A phrase with a function word is prose unless it reads like a name.
 
@@ -130,6 +152,14 @@ def _is_prose(words: list[str]) -> bool:
 
 # ---------------------------------------------------------------- ours
 COPY = 85  # RapidFuzz token-set ratio between the model's wording and a list item to take the item instead
+#: a trailing bracket a list puts after a skill ("Python (5/5)", "SQL (advanced)"): not part of
+#: the skill's name when it is matched against the skills the model found
+_TRAILING_BRACKET = re.compile(r"\s*[(\[][^()\[\]]*[)\]]\s*$")
+
+
+def _key(name: str) -> str:
+    """A skill as it is matched: casefolded, a trailing bracket left off."""
+    return _TRAILING_BRACKET.sub("", name).strip().casefold() or name.casefold()
 
 
 def listed(lines: list[str], headings: Headings) -> dict[int, list[str]]:
@@ -158,6 +188,15 @@ def _script(text: str) -> str:
     return "ar" if len(ARABIC_RE.findall(text)) > sum(c.isascii() and c.isalpha() for c in text) else "latin"
 
 
+def _agreed(anchors: list[dict], name: str) -> dict[str, dict]:
+    """The fields, other than the name, that every anchor holds with one and the same value."""
+    if not anchors:
+        return {}
+    first = {k: v for k, v in anchors[0]["fields"].items() if k != name and v.get("value") not in (None, "", [])}
+    return {k: {"kind": v.get("kind", "normalised"), "value": v["value"]} for k, v in first.items()
+            if all((a["fields"].get(k) or {}).get("value") == v["value"] for a in anchors[1:])}
+
+
 def copy_and_restore(profile: dict, lines: list[str], model: ProfileModel, headings: Headings) -> dict[str, int]:
     """The model's skills set against the CV's own skill-list lines, in place, for every
     section of kind ``skills`` whose name field has the role ``name``.
@@ -178,7 +217,7 @@ def copy_and_restore(profile: dict, lines: list[str], model: ProfileModel, headi
         for e in items:
             value = (e["fields"].get(label[sub]) or {}).get("value")
             if isinstance(value, str):
-                home.setdefault(value.casefold(), sub)
+                home.setdefault(_key(value), sub)
     if not home:
         return {"copied": 0, "restored": 0}
     split = {n: _skill_line_items(line, set(home)) for n, line in enumerate(lines, 1)}
@@ -194,14 +233,14 @@ def copy_and_restore(profile: dict, lines: list[str], model: ProfileModel, headi
             best = max(options, default=None)
             if best and best[0] >= COPY:
                 cell.update(was=cell["value"], value=best[1], check="verified")
-                home.setdefault(best[1].casefold(), sub)
+                home.setdefault(_key(best[1]), sub)
                 copied += 1
 
     restored = 0
     own = listed(lines, headings)
     # trusted the way Resume-Matcher trusts a line: two of its items are skills the model found too,
     # so a CV a reader broke into word fragments does not turn its fragments into skills
-    if sum(1 for items in own.values() for i in items if i.casefold() in home) < _MIN_LINE_ANCHORS:
+    if sum(1 for items in own.values() for i in items if _key(i) in home) < _MIN_LINE_ANCHORS:
         own = {}
     for n, items in own.items():  # the CV's skills section: every item, whatever the model took
         split[n] = items
@@ -209,16 +248,24 @@ def copy_and_restore(profile: dict, lines: list[str], model: ProfileModel, headi
     # a bilingual CV lists its skills twice: a line in a script the model read none of its
     # skills in is the other copy, already held, unless its own items anchor it
     scripts = {_script(k) for k in home}
+    by_key = {_key(v): e for sub, items in entries.items() for e in items
+              if isinstance(v := (e["fields"].get(label[sub]) or {}).get("value"), str)}
     for n, items in split.items():
-        anchored = [home[i.casefold()] for i in items if home.get(i.casefold())]
+        anchored = [home[_key(i)] for i in items if home.get(_key(i))]
         if len(anchored) < _MIN_LINE_ANCHORS and (n not in own or _script(" ".join(items)) not in scripts):
             continue
         sub = max(names, key=anchored.count) if anchored else names[0]
+        # a restored item takes the fields its line's own skills agree on (one list may hold
+        # both kinds of skill, told apart by a field): what the section did for a model that
+        # keeps each kind in a section of its own
+        shared = _agreed([by_key[_key(i)] for i in items if _key(i) in by_key], label[sub])
         for item in items:
-            if item.casefold() in home:
+            if _key(item) in home:
                 continue
-            home[item.casefold()] = sub
-            entries[sub].append({"lines": [n], "fields": {label[sub]: {"kind": "copied", "check": "verified", "value": item, "restored": True}}})
+            home[_key(item)] = sub
+            fields = {label[sub]: {"kind": "copied", "check": "verified", "value": item, "restored": True}}
+            fields.update({k: {**v, "check": "inferred", "restored": True} for k, v in shared.items()})
+            entries[sub].append({"lines": [n], "fields": fields})
             restored += 1
     groups = {s.name: s.group for s in subs}
     for sub, items in entries.items():
