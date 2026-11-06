@@ -311,4 +311,20 @@ def layout_markdown(content: str) -> str:
 
     content = _PAGE_EDGE.sub(edge, content)
     content = re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL)
-    return re.sub(r"</?figure[^>]*>|</?figcaption>", "", content)
+    content = re.sub(r"</?figure[^>]*>|</?figcaption>", "", content)
+    return "\n".join(unescape_markdown(line) for line in content.split("\n"))
+
+
+def unescape_markdown(line: str) -> str:
+    """A Markdown line as the words on the page: CommonMark's backslash escapes and
+    character references decoded by markdown-it-py (``\\.`` → ``.``, ``\\-`` → ``-``,
+    ``&amp;`` → ``&``), which Document Intelligence writes into its Markdown and a reader
+    would otherwise copy into the profile. Heading marks stay, so a ``\\#`` opening a line
+    stays escaped: decoded, it would read as a heading the layout never saw."""
+    from markdown_it.common.utils import unescapeAll
+
+    stripped = line.lstrip()
+    if stripped.startswith("\\#"):
+        lead = line[: len(line) - len(stripped)]
+        return lead + "\\#" + unescapeAll(stripped[2:])
+    return unescapeAll(line)

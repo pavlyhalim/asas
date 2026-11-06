@@ -46,6 +46,8 @@ dependencies = [
 docintel = [
     "azure-ai-documentintelligence>=1.0",
     "markdownify>=0.13",
+    # its Markdown read as the words on the page: CommonMark's escapes and references decoded
+    "markdown-it-py>=3",
 ]
 # the upload page and its router
 serve = [

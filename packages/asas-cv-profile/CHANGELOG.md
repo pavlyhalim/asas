@@ -9,6 +9,8 @@ Release procedure and the historical tag mapping: [`RELEASING.md`](../../RELEASI
 
 First release.
 
+- **Document Intelligence's Markdown read as text**: its CommonMark backslash escapes and character references (`1\.`, `\-`, `\>`, `&amp;`) are decoded with markdown-it-py before the lines are numbered, so a profile copies the words on the page. A literal `#` opening a line stays escaped, so only the layout's own headings read as headings. New `docintel` dependency: `markdown-it-py>=3`.
+
 - **Profile model**: the host's sections and fields in YAML, with section kinds,
   field roles, computed fields and the region phone numbers are read in; checked on load.
 - **Lines**: `read_cv` with Document Intelligence for PDFs (`LayoutReader`, the

@@ -268,3 +268,22 @@ def test_a_read_that_does_not_finish_in_time_is_refused_as_unavailable(monkeypat
     with pytest.raises(Refused) as caught:
         LayoutReader("https://example.cognitiveservices.azure.com", "key", read_timeout=0.01).read(b"%PDF-1.4")
     assert caught.value.code == "reader_unavailable" and deleted == ["op-1"]
+
+
+def test_document_intelligence_escapes_are_read_as_the_words_on_the_page():
+    # the shapes Document Intelligence writes, measured on real CVs: \. after a number,
+    # \- and \> opening a line, a character reference
+    md = "## Experience\n1\\. Led the team\n\\- Cut costs by 12%\n\\> 5 years in R&amp;D\nC# and C++ on .NET, Node.js"
+    out = [x for x in lines_mod.layout_markdown(md).splitlines() if x.strip()]
+    assert out == ["## Experience", "1. Led the team", "- Cut costs by 12%", "> 5 years in R&D", "C# and C++ on .NET, Node.js"]
+
+
+def test_a_literal_hash_opening_a_line_stays_escaped_so_it_is_no_heading():
+    out = lines_mod.unescape_markdown("\\# of staff managed: 12")
+    assert out == "\\# of staff managed: 12" and not marked(out)
+    assert lines_mod.unescape_markdown("## Skills") == "## Skills" and marked("## Skills")
+
+
+def test_a_backslash_that_escapes_nothing_and_arabic_text_are_kept():
+    assert lines_mod.unescape_markdown("C:\\Users\\Data") == "C:\\Users\\Data"
+    assert lines_mod.unescape_markdown("خبرة \\- ١٠ سنوات") == "خبرة - ١٠ سنوات"
